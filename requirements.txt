@@ -1,0 +1,5 @@
+numpy
+scipy
+matplotlib
+Pillow # For image processing
+tqdm  # For progress bars
