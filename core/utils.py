@@ -63,38 +63,38 @@ def load_images(image_path, dark_image_path=None, flat_image_path=None):
 
 def plot_distance_relationship(params):
     """
-    绘制距离关系示意图，显示源点、样品和探测器的位置关系
+    Plot a schematic diagram of the distance relationship, showing the positional relationship between the source, sample, and detector
 
-    参数:
-    - params: 包含校准后距离参数的字典
-    - old_source_dist: 校准前的源距离
-    - total_dist: 总距离
-    - base_path: 保存路径
+    Parameters:
+    - params: A dictionary containing calibrated distance parameters
+    - old_source_dist: Source distance before calibration
+    - total_dist: Total distance
+    - base_path: Save path
     """
     # import matplotlib.patches as patches
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 8))
 
-    # 上图：校准前的距离关系
+    # Top plot: distance relationship before calibration
     ax.set_xlim(-1, params["total_dist"] + 1)
     ax.set_ylim(-0.2, 1.5)
 
-    # 绘制光路
+    # Draw the optical path
     ax.plot([-1, params["total_dist"] + 1], [0.5, 0.5], 'k--', linewidth=2, alpha=0.3)
 
-    # 标记位置点
+    # Mark position points
     source_pos = 0
     sample_pos_old = params["old_source_dist"]
     det_pos = params["old_source_dist"] + params["det2sample"]
     delta = params["old_source_dist"] - params["source_dist"]
-    # 绘制各个组件
+    # Draw each component
 
     ax.plot(source_pos, 0.5, 'o', color='gray', markersize=10, label='Zero point')
     ax.plot(delta, 0.5, 'ro', markersize=10, label='Focus point')
     ax.plot([sample_pos_old, sample_pos_old], [0.4, 0.6], 'b-', linewidth=3, label='Sample')
     ax.plot([det_pos, det_pos], [0.4, 0.6], 'g-', linewidth=3, label='Detector')
 
-    # 添加距离标注
+    # Add distance annotations
     ax.annotate('', xy=(sample_pos_old, 0.4), xytext=(source_pos, 0.4),
                 arrowprops=dict(arrowstyle='<->', color='gray', lw=2))
     ax.text((source_pos + sample_pos_old) / 2, 0.35,

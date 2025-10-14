@@ -4,134 +4,98 @@ A comprehensive data analysis pipeline for X-ray beam characterization using gra
 
 ## Overview
 
-This project implements an analysis pipeline for X-ray Grating Interferometry (XGI) wavefront sensing, supporting both experimental and simulated data processing. The system provides detailed beam characterization, phase reconstruction, and focus analysis capabilities.
+This project provides a complete and robust data analysis pipeline for X-ray Grating Interferometry (XGI) wavefront sensing. It is designed for both experimental and simulated data, offering detailed beam characterization, phase reconstruction, and focus analysis capabilities. The pipeline is implemented in Python and leverages multi-threading for efficient real-time analysis.
+
+## How it Works
+
+The pipeline follows a standard XGI analysis workflow:
+
+1.  **Image Preprocessing:** Raw images are corrected for dark-field and flat-field variations and then cropped to a standardized size.
+2.  **Frequency Domain Analysis:** The preprocessed image is transformed into the frequency domain using FFT. The harmonic peaks of the grating pattern are identified to determine the precise grating period and orientation.
+3.  **Phase Reconstruction:** The differential phase contrast (DPC) in both the horizontal and vertical directions is calculated from the harmonic components. The phase is then reconstructed from the DPC signals using a Frankot-Chellappa algorithm.
+4.  **Wavefront Analysis:** A model (e.g., a parabolic wavefront) is fitted to the reconstructed phase to quantify aberrations and other wavefront characteristics.
+5.  **Focus Analysis:** The pipeline analyzes the beam's focus by propagating the reconstructed wavefront to the focal plane and characterizing the spot size and position.
 
 ## Features
 
-- Complete wavefront sensing pipeline
-- Support for both experimental and simulation modes
-- Multi-threaded data processing
-- Real-time analysis capabilities
-- Comprehensive beam characterization
-- Advanced phase reconstruction
-- Focus quality assessment
+*   **End-to-End Pipeline:** A complete solution for XGI wavefront sensing, from raw data to final analysis.
+*   **Dual Mode:** Supports both experimental and simulated data.
+*   **High Performance:** Utilizes multi-threading and optimized numerical algorithms for real-time processing.
+*   **Comprehensive Analysis:** Provides a wide range of analysis capabilities, including:
+    *   Image preprocessing and normalization
+    *   Grating interference pattern analysis
+    *   Wavefront reconstruction and phase map generation
+    *   Wavefront error analysis
+    *   Beam position and size measurements
+    *   Focus characterization
 
-## Key Capabilities
+## Installation
 
-- Image preprocessing and normalization
-- Grating interference pattern analysis
-- Wavefront reconstruction
-- Phase map generation
-- Error profile analysis
-- Beam position and size measurements
-- Focus characterization
+1.  **Clone the repository:**
 
-## Technical Details
+    ```bash
+    git clone https://github.com/your-username/online_wfs.git
+    cd online_wfs
+    ```
 
-### System Requirements
+2.  **Install dependencies:**
 
-- Python 3.7+
-- NumPy
-- SciPy
-- Threading support
-- TIFF image processing capabilities
-
-### Core Components
-
-1. **Data Processing Pipeline**
-   - Raw image preprocessing
-   - Dark field and flat field corrections
-   - Center-crop standardization
-
-2. **Frequency Domain Analysis**
-   - FFT-based processing
-   - Harmonic period calculation
-   - Pattern alignment
-
-3. **Phase Analysis**
-   - DPC (Differential Phase Contrast) calculation
-   - Wavefront reconstruction
-   - Error profile generation
-
-4. **Focus Analysis**
-   - Beam position tracking
-   - Size measurements
-   - Focus quality assessment
+    ```bash
+    pip install -r requirements.txt
+    ```
 
 ## Usage
 
+The pipeline can be run in either experimental or simulation mode using the provided example scripts.
+
 ### Experimental Mode
 
-```python
-from example_exp import main as exp_main
+To process experimental data, run the `example_exp.py` script:
 
-# Run experimental analysis
-exp_main()
+```bash
+python example_exp.py
 ```
 
 ### Simulation Mode
 
-```python
-from example_sim import main as sim_main
+To process simulated data, run the `example_sim.py` script:
 
-# Run simulation analysis
-sim_main()
+```bash
+python example_sim.py
 ```
 
-### Configuration Parameters
+## Configuration
 
-Key system parameters that can be configured:
+The pipeline is configured through a Python dictionary of parameters. The key parameters are:
 
 ```python
 params = {
     'pixel_size': [0.715e-6, 0.715e-6],  # Detector pixel size (m)
-    'wavelength': wavelength,             # X-ray wavelength
+    'wavelength': wavelength,             # X-ray wavelength (m)
     'det2sample': 0.35,                  # Grating-to-detector distance (m)
     'total_dist': 6.5,                   # Source-to-detector distance (m)
     'grating_period': period,            # Grating period (m)
 }
 ```
 
-## Output Products
-
-1. **Phase Maps**
-   - Reconstructed phase distribution
-   - Wavefront error analysis
-
-2. **Beam Characteristics**
-   - Position measurements
-   - Size calculations
-
-3. **Analysis Visualizations**
-   - Error profiles
-   - Focus analysis plots
-
-## Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/online_wfs.git
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+These parameters can be adjusted in the `example_exp.py` and `example_sim.py` scripts.
 
 ## Project Structure
 
-```
-online_wfs/
-├── core/                     # Core analysis modules
-│   ├── beam_analysis.py     # Beam characterization
-│   ├── dpc_preprocess.py    # DPC preprocessing
-│   ├── grating_analysis.py  # Grating pattern analysis
-│   ├── optical_physics.py   # Physical calculations
-│   ├── phase_analysis.py    # Phase reconstruction
-│   ├── phase_fit.py        # Wavefront fitting
-│   ├── propagation.py      # Beam propagation
-│   └── utils.py            # Utility functions
-├── example_exp.py          # Experimental mode
-├── example_sim.py          # Simulation mode
-└── pipeline.py             # Main processing pipeline
-```
+*   `core/`: Core analysis modules
+    *   `__init__.py`: Makes Python treat the directory as a package
+    *   `beam_analysis.py`: Functions for beam characterization
+    *   `dpc_preprocess.py`: Functions for DPC preprocessing
+    *   `grating_analysis.py`: Functions for grating pattern analysis
+    *   `optical_physics.py`: Functions for physical calculations
+    *   `phase_analysis.py`: Functions for phase reconstruction
+    *   `phase_fit.py`: Functions for wavefront fitting
+    *   `propagation.py`: Functions for beam propagation
+    *   `utils.py`: Utility functions
+    *   `wfs_pipeline.py`: Functions for WFS pipeline
+*   `example_exp.py`: Example script for experimental mode
+*   `example_sim.py`: Example script for simulation mode
+*   `benchmark_pipeline.py`: Script for benchmarking the pipeline
+*   `pipline.py`: Main processing pipeline
+*   `requirements.txt`: Python dependencies
+*   `README.md`: This file

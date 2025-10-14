@@ -3,7 +3,7 @@ def pipeline(params):
     img, dark, flat = load_images(params['image_path'], params["dark_image_path"],
                                   params["flat_image_path"])  # in np.float32 for better performance
     # %%
-    # 图像归一化
+    # Image normalization
     img = image_correction(img, flat=flat, dark=dark, epsilon=1e-8, normalize=False)
     # %%
     # Center-crop

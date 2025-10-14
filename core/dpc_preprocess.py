@@ -4,18 +4,19 @@ from numpy.fft import fft2, ifft2, fftshift, ifftshift
 
 def _create_cosine_edge_taper(image_shape, taper_ratio=0.08, dtype=np.float32):
     """
-    Create a cosine edge taper window for smooth edge transitions.
+    Create a cosine edge taper window for smooth edge transitions in Fourier processing.
 
-    The window maintains value 1 in the center and smoothly tapers to 0 at edges
-    using a cosine function to minimize FFT artifacts.
+    The window applies a cosine-based tapering at the edges of the image to minimize
+    spectral leakage and ringing artifacts in FFT operations. The central region
+    maintains a value of 1, while the edges smoothly transition to 0.
 
     Args:
-        image_shape (tuple): Shape of the image (height, width)
-        taper_ratio (float): Fraction of image dimensions to use for tapering
-        dtype (np.dtype): Data type for the output array
+        image_shape (tuple): Shape of the image as (height, width)
+        taper_ratio (float): Width of taper region as fraction of image dimensions (default: 0.08)
+        dtype (np.dtype): Output array data type (default: np.float32)
 
     Returns:
-        np.ndarray: 2D taper window with same shape as input
+        np.ndarray: 2D taper window with dimensions matching image_shape
     """
     height, width = image_shape
 
@@ -43,19 +44,20 @@ def _create_cosine_edge_taper(image_shape, taper_ratio=0.08, dtype=np.float32):
 def _create_raised_cosine_lowpass_filter(image_shape, cutoff_frequency=0.35,
                                         rolloff_width=0.08, dtype=np.float32):
     """
-    Create a raised-cosine lowpass filter for smooth frequency domain filtering.
+    Create a raised-cosine lowpass filter for frequency domain filtering.
 
-    The filter has a flat passband, smooth rolloff transition, and complete stopband
-    to minimize ringing artifacts in the filtered image.
+    Generates a smooth 2D frequency response with controlled transition between
+    passband and stopband to minimize Gibbs phenomena. The filter is radially
+    symmetric and centered at zero frequency after fftshift.
 
     Args:
-        image_shape (tuple): Shape of the image (height, width)
-        cutoff_frequency (float): Cutoff frequency as fraction of Nyquist (0-0.5)
-        rolloff_width (float): Width of transition band as fraction of Nyquist
-        dtype (np.dtype): Data type for the output array
+        image_shape (tuple): Shape of the image as (height, width)
+        cutoff_frequency (float): Normalized cutoff frequency [0-0.5] relative to Nyquist
+        rolloff_width (float): Normalized transition bandwidth [0-0.5] relative to Nyquist
+        dtype (np.dtype): Output array data type (default: np.float32)
 
     Returns:
-        np.ndarray: 2D frequency domain filter with same shape as input
+        np.ndarray: 2D frequency domain filter with dimensions matching image_shape
     """
     height, width = image_shape
     nyquist_frequency = min(height, width) / 2.0
@@ -87,18 +89,20 @@ def _create_raised_cosine_lowpass_filter(image_shape, cutoff_frequency=0.35,
 
 def _apply_reflective_padding(image, padding_ratio=0.125):
     """
-    Apply reflective padding to reduce FFT edge artifacts.
+    Apply reflective padding to minimize FFT edge discontinuities.
 
-    Reflective padding mirrors the image content at boundaries, which helps
-    minimize discontinuities that cause spectral leakage in FFT processing.
+    Extends the image boundaries using reflection, which preserves edge continuity
+    and reduces artifacts in frequency domain processing. The padding size is
+    proportional to the smaller image dimension.
 
     Args:
         image (np.ndarray): Input 2D image array
-        padding_ratio (float): Padding size as fraction of minimum image dimension
+        padding_ratio (float): Padding width relative to min(height, width)
 
     Returns:
-        tuple: (padded_image, crop_slice) where crop_slice can be used to
-               extract the original region from the padded image
+        tuple: (padded_image, crop_slice), where:
+            - padded_image (np.ndarray): Image with reflective padding
+            - crop_slice (tuple): Slice objects to recover original dimensions
     """
     height, width = image.shape
     padding_size = int(min(height, width) * padding_ratio)
@@ -122,33 +126,32 @@ def preprocess_dpc(
     lowpass_rolloff=0.08,
 ):
     """
-    Comprehensive DPC (Differential Phase Contrast) image preprocessing pipeline.
+    Advanced DPC (Differential Phase Contrast) image preprocessing pipeline.
 
-    This function applies a series of preprocessing steps to reduce noise and artifacts
-    while preserving important low-frequency information such as spherical aberrations:
-    1. Remove DC bias (global mean)
-    2. Apply reflective padding to minimize FFT edge effects
-    3. Apply cosine edge tapering for smooth transitions
-    4. Apply lowpass filtering in frequency domain
-    5. Crop back to original dimensions
+    Applies a sequence of optimized preprocessing steps to enhance DPC image quality:
+    1. DC bias removal to normalize the signal baseline
+    2. Reflective padding to minimize FFT edge artifacts
+    3. Edge tapering for smooth boundary transitions
+    4. Frequency domain lowpass filtering for noise reduction
+    5. Restoration of original image dimensions
 
-    The default parameters are optimized for typical X-ray grating self-images
-    and generally do not require adjustment.
+    Parameters are optimized for X-ray grating interferometry but can be adjusted
+    for specific experimental conditions.
 
     Args:
-        dpc_image (np.ndarray): Input DPC image (2D array)
-        padding_ratio (float): Reflective padding size as fraction of minimum dimension
-        taper_ratio (float): Edge taper width as fraction of image dimensions
-        lowpass_cutoff (float): Lowpass filter cutoff frequency (0-0.5 relative to Nyquist)
-        lowpass_rolloff (float): Lowpass filter rolloff width (relative to Nyquist)
+        dpc_image (np.ndarray): Raw DPC image data (2D array)
+        padding_ratio (float): Padding width relative to min(height, width)
+        taper_ratio (float): Edge taper width relative to image dimensions
+        lowpass_cutoff (float): Normalized cutoff frequency [0-0.5]
+        lowpass_rolloff (float): Normalized transition bandwidth [0-0.5]
 
     Returns:
-        np.ndarray: Preprocessed DPC image with same shape and dtype as input
+        np.ndarray: Preprocessed DPC image with preserved dimensions and dtype
 
-    Note:
-        This preprocessing preserves low-frequency content including spherical
-        aberrations and other important phase information while reducing high-frequency
-        noise and artifacts.
+    Notes:
+        - Preserves low-frequency phase information including spherical aberrations
+        - Reduces high-frequency noise while maintaining edge fidelity
+        - Memory-efficient implementation with in-place operations where possible
     """
     # Remove DC bias to center the data around zero
     dpc_zero_mean = dpc_image - np.nanmean(dpc_image)

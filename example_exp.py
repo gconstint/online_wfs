@@ -35,8 +35,7 @@ import threading
 from queue import Queue
 
 from pipline import task
-from core.phase_fit import plot_phase_error_profiles
-from core.utils import calculate_wavelength
+from core import plot_phase_error_profiles, calculate_wavelength
 
 
 def _output1_worker(queue: Queue) -> None:

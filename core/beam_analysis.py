@@ -9,16 +9,15 @@ def calculate_and_visualize_beam(phase, virtual_pixel_size, title="Beam Analysis
     Calculate beam position and size based on phase distribution and visualize on the phase map.
     Determines beam size by calculating horizontal and vertical signal distribution, then calculating FWHM.
 
-
     Args:
-        phase: Reconstructed phase
-        virtual_pixel_size: Virtual pixel size [px_x, px_y] in meters
-        params: System parameters dictionary
-        title: Plot title
-        wavelength: Wavelength (meters), used for through-focus analysis
+        phase (ndarray): Reconstructed phase map
+        virtual_pixel_size (list): Virtual pixel size [px_x, px_y] in meters
+        title (str): Plot title (default: "Beam Analysis")
 
     Returns:
-        tuple: (beam_position, beam_size, cropped_phase, crop_indices)
+        tuple: (beam_position, beam_size)
+            - beam_position (tuple): (x, y) beam center position in meters
+            - beam_size (dict): Contains 'fwhm_x' and 'fwhm_y' in meters
     """
     height, width = phase.shape
 
@@ -37,13 +36,14 @@ def calculate_and_visualize_beam(phase, virtual_pixel_size, title="Beam Analysis
         and calculate FWHM and 1/e^2 radius.
 
         Args:
-            profile (ndarray): 1D intensity or phase profile.
-            coords (ndarray): Coordinate axis (same length as profile).
+            profile (ndarray): 1D intensity or phase profile
+            coords (ndarray): Coordinate axis (same length as profile)
 
         Returns:
-            fwhm (float): Full width at half maximum (same unit as coords).
-            w0 (float): 1/e^2 radius.
-            popt (tuple): (amplitude, mean, sigma, offset)
+            tuple: (fwhm, w0, fit_params)
+                - fwhm (float): Full Width at Half Maximum (same unit as coords)
+                - w0 (float): 1/e^2 radius (same unit as coords)
+                - fit_params (tuple): (amplitude, mean, sigma, offset) or None if fitting fails
         """
 
         # --- Normalize profile to [0, 1] ---
@@ -148,20 +148,18 @@ def calculate_and_visualize_beam(phase, virtual_pixel_size, title="Beam Analysis
 def plot_beam_visualization(phase, virtual_pixel_size, beam_x_um, beam_y_um, fwhm_x, fwhm_y, fit_params_x, fit_params_y,
                             title="Beam Analysis"):
     """
-    Plot phase map with beam center/size overlays and profile fits, plus a 3D surface.
+    Plot phase map with beam center/size overlays, profile fits, and 3D surface visualization.
 
     Args:
-        phase: Reconstructed phase map (2D array)
-        virtual_pixel_size: [px_x, px_y] in meters
-        beam_x_um, beam_y_um: Beam center in micrometers
-        fwhm_x, fwhm_y: FWHM in micrometers
-        w0_x, w0_y: 1/e^2 radii in micrometers
-        fit_params_x, fit_params_y: Gaussian fit params (amplitude, mean, sigma, offset) or None
-        is_valley_x, is_valley_y: Whether the profile is valley-type
-        title: Plot title
-        params: Parameter dict, used for saving path (expects params['image_path'])
-        save_fig_flag: Whether to save the figure
-        save_file_suf: Suffix for the saved file name
+        phase (ndarray): Reconstructed phase map (2D array)
+        virtual_pixel_size (list): [px_x, px_y] in meters
+        beam_x_um (float): Beam center x-coordinate in micrometers
+        beam_y_um (float): Beam center y-coordinate in micrometers
+        fwhm_x (float): Full Width at Half Maximum in x-direction (micrometers)
+        fwhm_y (float): Full Width at Half Maximum in y-direction (micrometers)
+        fit_params_x (tuple): Gaussian fit parameters for x-direction (amplitude, mean, sigma, offset) or None
+        fit_params_y (tuple): Gaussian fit parameters for y-direction (amplitude, mean, sigma, offset) or None
+        title (str): Plot title (default: "Beam Analysis")
     """
 
     height, width = phase.shape
@@ -259,19 +257,25 @@ def plot_beam_visualization(phase, virtual_pixel_size, beam_x_um, beam_y_um, fwh
 
 def analyze_focus_sampling_from_beam(amplitude, dx, dy, wavelength, propagation_distance, beam_size=None):
     """
-    Calculate focus sampling rate based on Gaussian cone beam divergence angle, supporting separate calculation for X and Y directions
+    Calculate focus sampling rate based on Gaussian cone beam divergence angle.
+    Supports separate calculations for X and Y directions.
 
     Args:
-        amplitude: Amplitude distribution
-        dx: Current pixel size in X direction (m)
-        dy: Current pixel size in Y direction (m)
-        wavelength: Wavelength (m)
-        propagation_distance: Propagation distance (m)
-        beam_size: Optional, dictionary containing 'fwhm_x' and 'fwhm_y', if not provided will estimate from amplitude
+        amplitude (ndarray): Complex amplitude distribution
+        dx (float): Current pixel size in X direction (meters)
+        dy (float): Current pixel size in Y direction (meters)
+        wavelength (float): Wavelength (meters)
+        propagation_distance (float): Propagation distance (meters)
+        beam_size (dict): Contains 'fwhm_x' and 'fwhm_y' in meters
 
     Returns:
         tuple: (dx_focus_final_x, dx_focus_final_y, divergence_angle_x, divergence_angle_y, w0_x, w0_y)
-               - Focus sampling rates, divergence angles, and beam waist radii in X and Y directions
+            - dx_focus_final_x (float): Focus sampling rate in X direction (meters)
+            - dx_focus_final_y (float): Focus sampling rate in Y direction (meters)
+            - divergence_angle_x (float): Beam divergence angle in X direction (radians)
+            - divergence_angle_y (float): Beam divergence angle in Y direction (radians)
+            - w0_x (float): Beam waist radius in X direction (meters)
+            - w0_y (float): Beam waist radius in Y direction (meters)
     """
     # If beam_size not provided, estimate FWHM from amplitude
     assert beam_size is not None, "beam_size must be provided"
