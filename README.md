@@ -25,9 +25,10 @@ The pipeline follows a standard XGI analysis workflow:
     *   Image preprocessing and normalization
     *   Grating interference pattern analysis
     *   Wavefront reconstruction and phase map generation
-    *   Wavefront error analysis
+    *   Wavefront error analysis and Zernike fitting
     *   Beam position and size measurements
-    *   Focus characterization
+    *   Focus calibration and characterization
+    *   Mirror surface error analysis
 
 ## Installation
 
@@ -53,7 +54,7 @@ The pipeline can be run in either experimental or simulation mode using the prov
 To process experimental data, run the `example_exp.py` script:
 
 ```bash
-python example_exp.py
+python examples/example_exp.py
 ```
 
 ### Simulation Mode
@@ -61,7 +62,15 @@ python example_exp.py
 To process simulated data, run the `example_sim.py` script:
 
 ```bash
-python example_sim.py
+python examples/example_sim.py
+```
+
+### Benchmarking
+
+To run performance benchmarks:
+
+```bash
+python benchmarks/benchmark_pipeline.py
 ```
 
 ## Configuration
@@ -78,24 +87,50 @@ params = {
 }
 ```
 
-These parameters can be adjusted in the `example_exp.py` and `example_sim.py` scripts.
+These parameters can be adjusted in the example scripts located in the `examples/` directory.
 
 ## Project Structure
 
-*   `core/`: Core analysis modules
-    *   `__init__.py`: Makes Python treat the directory as a package
-    *   `beam_analysis.py`: Functions for beam characterization
-    *   `dpc_preprocess.py`: Functions for DPC preprocessing
-    *   `grating_analysis.py`: Functions for grating pattern analysis
-    *   `optical_physics.py`: Functions for physical calculations
-    *   `phase_analysis.py`: Functions for phase reconstruction
-    *   `phase_fit.py`: Functions for wavefront fitting
-    *   `propagation.py`: Functions for beam propagation
-    *   `utils.py`: Utility functions
-    *   `wfs_pipeline.py`: Functions for WFS pipeline
-*   `example_exp.py`: Example script for experimental mode
-*   `example_sim.py`: Example script for simulation mode
-*   `benchmark_pipeline.py`: Script for benchmarking the pipeline
-*   `pipline.py`: Main processing pipeline
-*   `requirements.txt`: Python dependencies
-*   `README.md`: This file
+```
+online_wfs/
+├── core/                           # Core analysis modules
+│   ├── __init__.py                 # Package initialization with public API
+│   ├── beam_analysis.py            # Beam characterization and profiling
+│   ├── dpc_preprocess.py           # DPC signal preprocessing
+│   ├── focus_calibration.py        # Focus position calibration
+│   ├── grating_analysis.py         # Grating pattern analysis
+│   ├── mirror_surface_analysis.py  # Mirror surface error analysis
+│   ├── phase_analysis.py           # Phase reconstruction algorithms
+│   ├── phase_fit.py                # Wavefront fitting functions
+│   ├── propagation.py              # Beam propagation calculations
+│   ├── roi_utils.py                # ROI selection utilities
+│   ├── source_distance.py          # Source distance estimation
+│   ├── utils.py                    # General utility functions
+│   └── zernike_analysis.py         # Zernike polynomial analysis
+├── data/                           # Sample data files
+│   ├── sample_exp.tif              # Sample experimental data
+│   └── sample_sim.tif              # Sample simulation data
+├── examples/                       # Example scripts
+│   ├── example_exp.py              # Experimental mode example
+│   └── example_sim.py              # Simulation mode example
+├── benchmarks/                     # Performance benchmarking
+│   └── benchmark_pipeline.py       # Pipeline benchmark script
+├── docs/                           # Documentation
+├── pipeline.py                     # Main processing pipeline
+├── requirements.txt                # Python dependencies
+└── README.md                       # This file
+```
+
+## Dependencies
+
+- **numpy**: Numerical computing
+- **scipy**: Scientific computing and optimization
+- **matplotlib**: Visualization
+- **Pillow**: Image I/O
+- **opencv-python**: Image processing
+- **scikit-image**: Phase unwrapping and image analysis
+- **tqdm**: Progress bars
+
+## License
+
+This project is open source. See the LICENSE file for details.

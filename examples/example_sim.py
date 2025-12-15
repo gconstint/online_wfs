@@ -32,11 +32,17 @@
 # - Beam position and size metrics
 # - Focus characteristics
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import numpy as np
 import threading
 from queue import Queue
 
-from pipline import task
+from pipeline import task
 from core import plot_phase_error_profiles, calculate_wavelength
 
 
@@ -97,27 +103,35 @@ def main():
     params = dict()
 
     # Detector Specifications
-    params['pixel_size'] = [1.3e-6, 1.3e-6]  # Detector pixel size (m)
-    params['wavelength'] = calculate_wavelength(5000)  # X-ray wavelength (eV to m)
+    params["pixel_size"] = [1.3e-6, 1.3e-6]  # Detector pixel size (m)
+    params["wavelength"] = calculate_wavelength(5000)  # X-ray wavelength (eV to m)
 
     # Optical System Geometry
-    params['det2sample'] = 2.803  # Grating-to-detector distance (m)
-    params['total_dist'] = 3.0    # Source-to-detector distance (m)
-    params['source_dist'] = params['total_dist'] - params['det2sample']  # Source-to-grating distance (m)
+    params["det2sample"] = 2.803  # Grating-to-detector distance (m)
+    params["total_dist"] = 3.0  # Source-to-detector distance (m)
+    params["source_dist"] = (
+        params["total_dist"] - params["det2sample"]
+    )  # Source-to-grating distance (m)
 
     # Grating Configuration
     period = 4e-6  # Base grating period (m)
-    params['grating_period'] = period / np.sqrt(2)  # Effective grating period considering rotation
+    params["grating_period"] = period / np.sqrt(
+        2
+    )  # Effective grating period considering rotation
     # Calculate expected self-imaging period based on geometry
-    params['pattern_period'] = params['grating_period'] * params['total_dist'] / params['source_dist']
+    params["pattern_period"] = (
+        params["grating_period"] * params["total_dist"] / params["source_dist"]
+    )
 
     # Simulation Data Source
-    img_path = "sample_sim.tif"
-    params.update({
-        'image_path': img_path,
-        "dark_image_path": None,  # Optional dark field correction
-        "flat_image_path": None,  # Optional flat field correction
-    })
+    img_path = str(Path(__file__).parent.parent / "data" / "sample_sim.tif")
+    params.update(
+        {
+            "image_path": img_path,
+            "dark_image_path": None,  # Optional dark field correction
+            "flat_image_path": None,  # Optional flat field correction
+        }
+    )
 
     # Initialize Multi-threaded Output Processing
     queues = {
@@ -128,9 +142,15 @@ def main():
 
     # Configure Worker Threads
     workers = {
-        "output1": threading.Thread(target=_output1_worker, args=(queues["output1"],), name="output1"),
-        "output2": threading.Thread(target=_output2_worker, args=(queues["output2"],), name="output2"),
-        "output3": threading.Thread(target=_output3_worker, args=(queues["output3"],), name="output3"),
+        "output1": threading.Thread(
+            target=_output1_worker, args=(queues["output1"],), name="output1"
+        ),
+        "output2": threading.Thread(
+            target=_output2_worker, args=(queues["output2"],), name="output2"
+        ),
+        "output3": threading.Thread(
+            target=_output3_worker, args=(queues["output3"],), name="output3"
+        ),
     }
 
     # Launch Processing Threads

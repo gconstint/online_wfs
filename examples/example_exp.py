@@ -31,10 +31,21 @@
 # - Beam position and size measurements
 # - Focus characteristics
 
+# Set matplotlib backend before importing pyplot (required for macOS threading)
+import matplotlib
+
+matplotlib.use("Agg")  # Non-interactive backend for thread safety
+
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import threading
 from queue import Queue
 
-from pipline import task
+from pipeline import task
 from core import plot_phase_error_profiles, calculate_wavelength
 
 
@@ -95,27 +106,33 @@ def main():
     params = dict()
 
     # Detector Configuration
-    params['pixel_size'] = [0.715e-6, 0.715e-6]  # Pixel size in meters (x, y)
-    params['wavelength'] = calculate_wavelength(7100)  # X-ray wavelength (eV to m)
+    params["pixel_size"] = [0.715e-6, 0.715e-6]  # Pixel size in meters (x, y)
+    params["wavelength"] = calculate_wavelength(7100)  # X-ray wavelength (eV to m)
 
     # Optical System Geometry
-    params['det2sample'] = 0.35  # Grating-to-detector distance (m)
-    params['total_dist'] = 6.5  # Source-to-detector distance (m)
-    params['source_dist'] = params['total_dist'] - params['det2sample']  # Source-to-grating distance (m)
+    params["det2sample"] = 0.35  # Grating-to-detector distance (m)
+    params["total_dist"] = 6.5  # Source-to-detector distance (m)
+    params["source_dist"] = (
+        params["total_dist"] - params["det2sample"]
+    )  # Source-to-grating distance (m)
 
     # Grating Parameters
     period = 18.38e-6  # Base grating period (m)
-    params['grating_period'] = period / 2  # Effective grating period
+    params["grating_period"] = period / 2  # Effective grating period
     # Calculate expected self-imaging period based on geometry
-    params['pattern_period'] = params['grating_period'] * params['total_dist'] / params['source_dist']
+    params["pattern_period"] = (
+        params["grating_period"] * params["total_dist"] / params["source_dist"]
+    )
 
     # Data Source Configuration
-    img_path = "sample_exp.tif"
-    params.update({
-        'image_path': img_path,
-        "dark_image_path": None,  # Optional dark field correction
-        "flat_image_path": None,  # Optional flat field correction
-    })
+    img_path = str(Path(__file__).parent.parent / "data" / "sample_exp.tif")
+    params.update(
+        {
+            "image_path": img_path,
+            "dark_image_path": None,  # Optional dark field correction
+            "flat_image_path": None,  # Optional flat field correction
+        }
+    )
 
     # Initialize Multi-threaded Output Processing
     queues = {
@@ -126,9 +143,15 @@ def main():
 
     # Configure Worker Threads
     workers = {
-        "output1": threading.Thread(target=_output1_worker, args=(queues["output1"],), name="output1"),
-        "output2": threading.Thread(target=_output2_worker, args=(queues["output2"],), name="output2"),
-        "output3": threading.Thread(target=_output3_worker, args=(queues["output3"],), name="output3"),
+        "output1": threading.Thread(
+            target=_output1_worker, args=(queues["output1"],), name="output1"
+        ),
+        "output2": threading.Thread(
+            target=_output2_worker, args=(queues["output2"],), name="output2"
+        ),
+        "output3": threading.Thread(
+            target=_output3_worker, args=(queues["output3"],), name="output3"
+        ),
     }
 
     # Launch Processing Threads
