@@ -5,6 +5,7 @@ Core analysis modules for the XGI wavefront sensor pipeline.
 from .beam_analysis import (
     calculate_and_visualize_beam,
     analyze_focus_sampling_from_beam,
+    plot_beam_visualization,
 )
 from .dpc_preprocess import preprocess_dpc
 from .grating_analysis import (
@@ -31,7 +32,11 @@ from .utils import (
     load_images,
     calculate_magnification_correction,
 )
-from .zernike_analysis import analyze_and_visualize_zernike, perform_zernike_analysis
+from .zernike_analysis import (
+    analyze_and_visualize_zernike,
+    perform_zernike_analysis,
+    visualize_zernike_analysis,
+)
 from .focus_calibration import (
     calibrate_focus_position,
     calculate_focus_from_dpc,
@@ -45,6 +50,7 @@ __all__ = [
     # beam_analysis
     "calculate_and_visualize_beam",
     "analyze_focus_sampling_from_beam",
+    "plot_beam_visualization",
     # dpc_preprocess
     "preprocess_dpc",
     # grating_analysis
@@ -74,6 +80,7 @@ __all__ = [
     # zernike_analysis
     "analyze_and_visualize_zernike",
     "perform_zernike_analysis",
+    "visualize_zernike_analysis",
     # focus_calibration
     "calibrate_focus_position",
     "calculate_focus_from_dpc",

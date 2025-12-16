@@ -41,6 +41,8 @@ from core import (
     calculate_undulator_source_distance,
     # analyze_mirror_surface,
     select_circular_roi,
+    accurate_harmonic_periods,
+    rotate_image_by_peaks,
 )
 
 # Constants
@@ -71,6 +73,7 @@ def print_separator(
 def load_and_preprocess_image(
     params: Dict[str, Any],
     verbose: bool = True,
+    do_rotation: bool = True,
 ) -> np.ndarray:
     """
     Stage 1: Load images and perform preprocessing.
@@ -85,6 +88,9 @@ def load_and_preprocess_image(
         flat_image_path, pixel_size, pattern_period
     verbose : bool
         Whether to print status messages
+    do_rotation : bool
+        Whether to perform image rotation correction to align peaks
+        horizontally (default: True)
 
     Returns
     -------
@@ -104,10 +110,6 @@ def load_and_preprocess_image(
     # Center-crop to standard size
     img_cropped = center_crop(img, target_size=DEFAULT_CROP_SIZE)
 
-    # Compute FFT for frequency domain analysis
-    img32 = np.asarray(img_cropped, dtype=np.float32, order="C")
-    img_fft = fftshift(fft2(img32, norm="ortho", workers=cpu_count()))
-
     # Calculate theoretical harmonic periods
     harmonic_periods = calculate_harmonic_periods(
         (img_cropped.shape[0], img_cropped.shape[1]),
@@ -115,6 +117,30 @@ def load_and_preprocess_image(
         params["pattern_period"],
     )
     params["harmonic_periods"] = harmonic_periods
+
+    # Image rotation correction to align peaks horizontally
+    if do_rotation:
+        # Step 1: Compute initial FFT to find peak positions
+        img32 = np.asarray(img_cropped, dtype=np.float32, order="C")
+        img_fft_init = fftshift(fft2(img32, norm="ortho", workers=cpu_count()))
+
+        # Step 2: Find accurate peak positions for 00, 01, 10 harmonics
+        _, peak_positions = accurate_harmonic_periods(img_fft_init, harmonic_periods)
+
+        # Step 3: Rotate image to align 0th and 1st order peaks horizontally
+        img_cropped_rotated, rotation_angle = rotate_image_by_peaks(
+            img_cropped, peak_positions
+        )
+        if verbose:
+            print(f"Image rotation correction: {rotation_angle:.4f} degrees")
+
+        # Compute FFT for frequency domain analysis (on rotated image)
+        img32_rotated = np.asarray(img_cropped_rotated, dtype=np.float32, order="C")
+        img_fft = fftshift(fft2(img32_rotated, norm="ortho", workers=cpu_count()))
+    else:
+        # Compute FFT directly without rotation
+        img32 = np.asarray(img_cropped, dtype=np.float32, order="C")
+        img_fft = fftshift(fft2(img32, norm="ortho", workers=cpu_count()))
 
     return img_fft
 
@@ -598,7 +624,12 @@ def analyze_focus_by_propagation(
 # =============================================================================
 
 
-def task(params: dict, verbose: bool = True, show_plots: bool = True):
+def task(
+    params: dict,
+    verbose: bool = True,
+    show_plots: bool = True,
+    do_rotation: bool = False,
+):
     """
     Execute the complete XGI wavefront reconstruction pipeline.
 
@@ -617,6 +648,9 @@ def task(params: dict, verbose: bool = True, show_plots: bool = True):
         Whether to print status messages (default: True)
     show_plots : bool
         Whether to show plots (default: True)
+    do_rotation : bool
+        Whether to perform image rotation correction to align peaks
+        horizontally (default: True)
 
     Yields
     ------
@@ -624,7 +658,9 @@ def task(params: dict, verbose: bool = True, show_plots: bool = True):
         (checkpoint_name, results_dict) at each stage
     """
     # Stage 1: Image Loading and Preprocessing
-    img_fft = load_and_preprocess_image(params, verbose=verbose)
+    img_fft = load_and_preprocess_image(
+        params, verbose=verbose, do_rotation=do_rotation
+    )
 
     # Stage 2: Harmonic Extraction and DPC Calculation
     harmonic_result = extract_harmonics_and_dpc(img_fft, params, verbose=verbose)
@@ -685,6 +721,10 @@ def task(params: dict, verbose: bool = True, show_plots: bool = True):
         {
             "calibration_result": aberration_result["calibration_result"],
             "zernike_results": aberration_result["zernike_results"],
+            "roi_result": aberration_result["roi_result"],
+            "phase_error": phase_error,
+            "wavelength": params["wavelength"],
+            "virtual_pixel_size": virtual_pixel_size,
         },
     )
 
@@ -723,6 +763,9 @@ def task(params: dict, verbose: bool = True, show_plots: bool = True):
             "beam_size": beam_size,
             "focus_position": focus_result["focus_position"],
             "focus_size": focus_result["focus_size"],
+            "focus_field": focus_result["focus_field"],
+            "dx_focus": focus_result["dx_focus"],
+            "dy_focus": focus_result["dy_focus"],
         },
     )
 
