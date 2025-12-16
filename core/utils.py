@@ -121,47 +121,33 @@ def image_correction(
     ----
     仍然兼容旧参数名: I_self, I_flat, I_dark, eps
     """
-
     # 转换为浮点数避免溢出
-    image = np.asarray(image, dtype=np.float32)
-    if flat is not None:
-        flat = np.asarray(flat, dtype=np.float32)
-    if dark is not None:
-        dark = np.asarray(dark, dtype=np.float32)
+    image = np.asarray(image, dtype=np.float64)
 
-    # ----------------------
-    # Case 1: (image - dark) / (flat - dark)
-    if flat is not None and dark is not None:
+    # Case 3 and Case 4: No flat field correction needed
+    if flat is None:
+        if dark is not None:
+            dark = np.asarray(dark, dtype=np.float64)
+            return image - dark  # Simple dark subtraction, no division needed
+        else:
+            return image.copy()  # No correction needed, return copy
+
+    # Case 1 and Case 2: Flat field correction
+    flat = np.asarray(flat, dtype=np.float64)
+
+    if dark is not None:
+        dark = np.asarray(dark, dtype=np.float64)
         numerator = image - dark
         denominator = flat - dark
-
-    # Case 2: image / flat  (无 dark)
-    elif flat is not None and dark is None:
+    else:
         numerator = image
         denominator = flat
 
-    # Case 3: image - dark  (无 flat)
-    elif flat is None and dark is not None:
-        numerator = image - dark
-        denominator = np.ones_like(numerator)  # 不做平场，只做暗场扣除
-
-    # Case 4: 只用 image
-    else:
-        numerator = image
-        denominator = np.ones_like(numerator)
-
-    # ----------------------
-    # 防止除零
+    # Prevent division by near-zero values
     valid_mask = denominator > epsilon
     corrected_image = np.zeros_like(numerator, dtype=np.float64)
     corrected_image[valid_mask] = numerator[valid_mask] / (
         denominator[valid_mask] + epsilon
     )
-
-    # # 可选：归一化
-    # if normalize and np.any(valid_mask):
-    #     mean_value = np.mean(corrected_image[valid_mask])
-    #     if mean_value > 0:
-    #         corrected_image /= mean_value
 
     return corrected_image

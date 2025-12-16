@@ -615,7 +615,7 @@ def plot_phase_fit_results(
     )
     fit_info = (
         f"Fitted Parabolic Phase\n"
-        f"Rx = {Rx * 1e6:.2f} μm, Ry = {Ry * 1e6:.2f} μm\n "
+        # f"Rx = {Rx * 1e6:.2f} μm, Ry = {Ry * 1e6:.2f} μm\n "
         f"A = {A:.2f} rad\n"
         f"x₀ = {x0 * 1e6:.2f} μm, y₀ = {y0 * 1e6:.2f} μm"
     )

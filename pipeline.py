@@ -36,10 +36,10 @@ from core import (
     image_correction,
     load_images,
     analyze_and_visualize_zernike,
-    calibrate_focus_position,
+    # calibrate_focus_position,
     calculate_focus_from_dpc,
     calculate_undulator_source_distance,
-    analyze_mirror_surface,
+    # analyze_mirror_surface,
     select_circular_roi,
 )
 
@@ -315,14 +315,14 @@ def fit_wavefront(
         verbose=verbose,
     )
 
-    # Calculate focus position using DPC curvature method
-    reference_distance = params.get("total_dist", 0.465)
-    calculate_focus_from_dpc(
-        fit_params=fit_params,
-        wavelength=wavelength,
-        reference_distance=reference_distance,
-        verbose=verbose,
-    )
+    # # Calculate focus position using DPC curvature method
+    # reference_distance = params.get("total_dist", 0.465)
+    # calculate_focus_from_dpc(
+    #     fit_params=fit_params,
+    #     wavelength=wavelength,
+    #     reference_distance=reference_distance,
+    #     verbose=verbose,
+    # )
 
     return fitted_phase, phase_error, fit_params
 
@@ -386,14 +386,24 @@ def analyze_aberrations(
         verbose=verbose,
     )
 
-    # Focus Position Calibration
-    calibration_result = calibrate_focus_position(
-        fitted_phase=fitted_phase,
-        roi_result=roi_result,
-        params=params,
-        virtual_pixel_size=virtual_pixel_size,
+    # # Focus Position Calibration (Zernike-based)
+    # calibration_result = calibrate_focus_position(
+    #     fitted_phase=fitted_phase,
+    #     roi_result=roi_result,
+    #     params=params,
+    #     virtual_pixel_size=virtual_pixel_size,
+    #     verbose=verbose,
+    # )
+
+    # Focus Position Calibration (DPC-based)
+    calibration_result = calculate_focus_from_dpc(
+        fit_params=fit_params,
+        wavelength=params["wavelength"],
+        reference_distance=params["total_dist"],
         verbose=verbose,
     )
+    # Add 'R' key for compatibility with calculate_undulator_source_distance
+    calibration_result["R"] = calibration_result["R_avg"]
 
     # Undulator Source Distance Calculation
     source_distance_result = calculate_undulator_source_distance(
@@ -420,22 +430,22 @@ def analyze_aberrations(
         tukey_alpha=0.3,
     )
 
-    # Mirror Surface Error Analysis
-    mirror_surface_results = analyze_mirror_surface(
-        residual_phase=zernike_results["residual"],
-        pixel_size=virtual_pixel_size,
-        wavelength=params["wavelength"],
-        grazing_angle_mrad=params.get("grazing_angle_mrad", 3.0),
-        save_path=None,
-        show_plots=show_plots,
-        verbose=verbose,
-    )
+    # # Mirror Surface Error Analysis
+    # mirror_surface_results = analyze_mirror_surface(
+    #     residual_phase=zernike_results["residual"],
+    #     pixel_size=virtual_pixel_size,
+    #     wavelength=params["wavelength"],
+    #     grazing_angle_mrad=params.get("grazing_angle_mrad", 3.0),
+    #     save_path=None,
+    #     show_plots=show_plots,
+    #     verbose=verbose,
+    # )
 
     return {
         "roi_result": roi_result,
         "calibration_result": calibration_result,
         "zernike_results": zernike_results,
-        "mirror_surface_results": mirror_surface_results,
+        # "mirror_surface_results": mirror_surface_results,
     }
 
 
@@ -644,6 +654,19 @@ def task(params: dict, verbose: bool = True, show_plots: bool = True):
         show_plots=show_plots,
     )
 
+    # Checkpoint 1: Wavefront fitting results (after Stage 5)
+    yield (
+        "checkpoint_wavefront",
+        {
+            "phase": phase,
+            "fitted_phase": fitted_phase,
+            "phase_error": phase_error,
+            "fit_params": fit_params,
+            "virtual_pixel_size": virtual_pixel_size,
+            "wavelength": params["wavelength"],
+        },
+    )
+
     # Stage 6: ROI Selection and Aberration Analysis
     aberration_result = analyze_aberrations(
         fitted_phase=fitted_phase,
@@ -656,17 +679,12 @@ def task(params: dict, verbose: bool = True, show_plots: bool = True):
         show_plots=show_plots,
     )
 
-    # Export Zernike and calibration results (Checkpoint 1)
+    # Checkpoint 2: Aberration analysis results (after Stage 6)
     yield (
-        "output2",
+        "checkpoint_aberration",
         {
-            "phase_error": phase_error,
-            "virtual_pixel_size": virtual_pixel_size,
-            "wavelength": params["wavelength"],
-            "roi_result": aberration_result["roi_result"],
             "calibration_result": aberration_result["calibration_result"],
             "zernike_results": aberration_result["zernike_results"],
-            "mirror_surface_results": aberration_result["mirror_surface_results"],
         },
     )
 
@@ -697,7 +715,15 @@ def task(params: dict, verbose: bool = True, show_plots: bool = True):
             f"{focus_result['focus_size']['fwhm_y'] * 1e9:.3f}nm"
         )
 
-    # Export focus analysis results (Checkpoint 2)
-    yield "output3", (focus_result["focus_position"], focus_result["focus_size"])
+    # Checkpoint 3: Focus analysis results (after Stage 8)
+    yield (
+        "checkpoint_focus",
+        {
+            "beam_position": beam_position,
+            "beam_size": beam_size,
+            "focus_position": focus_result["focus_position"],
+            "focus_size": focus_result["focus_size"],
+        },
+    )
 
     print_separator("Analysis Completed", verbose=verbose)

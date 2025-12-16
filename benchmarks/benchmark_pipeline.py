@@ -11,9 +11,68 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # matplotlib.use("Agg")
 
 import timeit
+import platform
 import numpy as np
+import scipy
 from pipeline import task
 from core import calculate_wavelength
+
+
+def get_platform_info() -> dict:
+    """Collect platform and system information for benchmark reporting."""
+    info = {
+        "python_version": platform.python_version(),
+        "platform": platform.platform(),
+        "processor": platform.processor(),
+        "numpy_version": np.__version__,
+        "scipy_version": scipy.__version__,
+    }
+
+    # Try to get CPU info (macOS specific)
+    try:
+        import subprocess
+
+        # Get CPU brand on macOS
+        result = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            info["cpu_brand"] = result.stdout.strip()
+
+        # Get physical memory
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            mem_bytes = int(result.stdout.strip())
+            info["memory_gb"] = mem_bytes / (1024**3)
+    except Exception:
+        pass
+
+    return info
+
+
+def print_platform_info():
+    """Print platform information in a formatted way."""
+    info = get_platform_info()
+
+    print("=" * 50)
+    print("PLATFORM INFORMATION")
+    print("=" * 50)
+    print(f"Python:     {info.get('python_version', 'N/A')}")
+    print(f"Platform:   {info.get('platform', 'N/A')}")
+    if "cpu_brand" in info:
+        print(f"CPU:        {info.get('cpu_brand')}")
+    else:
+        print(f"Processor:  {info.get('processor', 'N/A')}")
+    if "memory_gb" in info:
+        print(f"Memory:     {info.get('memory_gb'):.1f} GB")
+    print(f"NumPy:      {info.get('numpy_version', 'N/A')}")
+    print(f"SciPy:      {info.get('scipy_version', 'N/A')}")
+    print("=" * 50)
+    print()
 
 
 def run_pipeline_task():
@@ -57,8 +116,11 @@ def run_pipeline_task():
 
 
 if __name__ == "__main__":
+    # Print platform information
+    print_platform_info()
+
     # Number of times to run the test
-    number_of_runs = 1
+    number_of_runs = 100
 
     # Collect individual run times
     times = []

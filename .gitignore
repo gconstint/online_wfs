@@ -49,4 +49,9 @@ log/
 Icon
 ._*
 
+__pycache__
+core/__pycache__
+
+output/*
+
 *.prof

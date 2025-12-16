@@ -105,12 +105,13 @@ def _fit_gaussian_profile(
         amplitude_init = 1.0
         mean_init = coords[norm_max_idx]
 
-        # Adaptive sigma initialization based on peak position
-        if (
-            norm_max_idx < len(normalized_profile) * 0.2
-            or norm_max_idx > len(normalized_profile) * 0.8
-        ):
-            sigma_init = data_range  # Larger sigma if peak is at edge
+        # Better sigma initialization: estimate from half-width at half-max
+        half_max = 0.5 * normalized_profile[norm_max_idx]
+        above_half = np.where(normalized_profile >= half_max)[0]
+        if len(above_half) > 1:
+            # Estimate FWHM from data, then convert to sigma
+            estimated_fwhm = abs(coords[above_half[-1]] - coords[above_half[0]])
+            sigma_init = estimated_fwhm / SIGMA_TO_FWHM_FACTOR
         else:
             sigma_init = data_range / 8
 
@@ -122,24 +123,24 @@ def _fit_gaussian_profile(
             [1.5, coords[-1] + data_range * 0.5, data_range * 0.8, 0.2],
         )
 
-        # Perform curve fitting
+        # Perform curve fitting with reduced iterations (faster convergence with good init)
         popt, _ = curve_fit(
             _gaussian_normalized,
             coords,
             normalized_profile,
             p0=[amplitude_init, mean_init, sigma_init, offset_init],
             bounds=bounds,
-            maxfev=10000,
+            maxfev=2000,  # Reduced from 10000 - usually converges in < 100
         )
 
         amplitude, mean, sigma, offset = popt
 
-        # Calculate R² to evaluate fit quality
-        residuals = normalized_profile - _gaussian_normalized(coords, *popt)
-        ss_res = np.sum(residuals**2)
-        ss_tot = np.sum((normalized_profile - np.mean(normalized_profile)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot)
+        # Only calculate R² when verbose (saves computation)
         if verbose:
+            residuals = normalized_profile - _gaussian_normalized(coords, *popt)
+            ss_res = np.sum(residuals**2)
+            ss_tot = np.sum((normalized_profile - np.mean(normalized_profile)) ** 2)
+            r_squared = 1 - (ss_res / ss_tot)
             print(f"Fitting R²: {r_squared:.3f}")
 
         # Calculate FWHM from sigma: FWHM = 2.355 * sigma

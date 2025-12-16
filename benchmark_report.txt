@@ -1,1 +1,119 @@
-Average runtime over 10 runs: 0.0890 seconds
+==================================================
+PLATFORM INFORMATION
+==================================================
+Python:     3.14.1
+Platform:   Windows-11-10.0.26100-SP0
+Processor:  Intel64 Family 6 Model 183 Stepping 1, GenuineIntel
+NumPy:      2.3.5
+SciPy:      1.16.3
+==================================================
+
+Run 1/100: 0.0968 seconds
+Run 2/100: 0.0908 seconds
+Run 3/100: 0.0905 seconds
+Run 4/100: 0.0911 seconds
+Run 5/100: 0.0947 seconds
+Run 6/100: 0.0913 seconds
+Run 7/100: 0.0899 seconds
+Run 8/100: 0.0954 seconds
+Run 9/100: 0.0926 seconds
+Run 10/100: 0.0902 seconds
+Run 11/100: 0.0922 seconds
+Run 12/100: 0.0877 seconds
+Run 13/100: 0.0883 seconds
+Run 14/100: 0.0908 seconds
+Run 15/100: 0.0881 seconds
+Run 16/100: 0.0911 seconds
+Run 17/100: 0.0930 seconds
+Run 18/100: 0.0912 seconds
+Run 19/100: 0.0933 seconds
+Run 20/100: 0.0915 seconds
+Run 21/100: 0.0915 seconds
+Run 22/100: 0.0918 seconds
+Run 23/100: 0.0891 seconds
+Run 24/100: 0.0908 seconds
+Run 25/100: 0.0890 seconds
+Run 26/100: 0.0896 seconds
+Run 27/100: 0.0902 seconds
+Run 28/100: 0.0911 seconds
+Run 29/100: 0.0893 seconds
+Run 30/100: 0.0907 seconds
+Run 31/100: 0.0922 seconds
+Run 32/100: 0.0882 seconds
+Run 33/100: 0.0907 seconds
+Run 34/100: 0.0905 seconds
+Run 35/100: 0.0946 seconds
+Run 36/100: 0.1021 seconds
+Run 37/100: 0.0934 seconds
+Run 38/100: 0.0923 seconds
+Run 39/100: 0.0907 seconds
+Run 40/100: 0.0915 seconds
+Run 41/100: 0.0902 seconds
+Run 42/100: 0.0906 seconds
+Run 43/100: 0.0921 seconds
+Run 44/100: 0.0908 seconds
+Run 45/100: 0.0921 seconds
+Run 46/100: 0.0918 seconds
+Run 47/100: 0.0920 seconds
+Run 48/100: 0.0926 seconds
+Run 49/100: 0.0910 seconds
+Run 50/100: 0.0922 seconds
+Run 51/100: 0.0906 seconds
+Run 52/100: 0.0905 seconds
+Run 53/100: 0.0895 seconds
+Run 54/100: 0.0881 seconds
+Run 55/100: 0.0896 seconds
+Run 56/100: 0.0877 seconds
+Run 57/100: 0.0887 seconds
+Run 58/100: 0.0884 seconds
+Run 59/100: 0.0911 seconds
+Run 60/100: 0.0922 seconds
+Run 61/100: 0.0915 seconds
+Run 62/100: 0.0886 seconds
+Run 63/100: 0.0902 seconds
+Run 64/100: 0.0900 seconds
+Run 65/100: 0.0926 seconds
+Run 66/100: 0.0902 seconds
+Run 67/100: 0.0880 seconds
+Run 68/100: 0.0910 seconds
+Run 69/100: 0.0892 seconds
+Run 70/100: 0.0908 seconds
+Run 71/100: 0.0909 seconds
+Run 72/100: 0.0908 seconds
+Run 73/100: 0.0947 seconds
+Run 74/100: 0.0899 seconds
+Run 75/100: 0.0906 seconds
+Run 76/100: 0.0911 seconds
+Run 77/100: 0.0913 seconds
+Run 78/100: 0.0924 seconds
+Run 79/100: 0.0920 seconds
+Run 80/100: 0.0900 seconds
+Run 81/100: 0.0903 seconds
+Run 82/100: 0.0896 seconds
+Run 83/100: 0.0934 seconds
+Run 84/100: 0.0894 seconds
+Run 85/100: 0.0911 seconds
+Run 86/100: 0.0913 seconds
+Run 87/100: 0.0920 seconds
+Run 88/100: 0.0903 seconds
+Run 89/100: 0.0914 seconds
+Run 90/100: 0.0916 seconds
+Run 91/100: 0.0908 seconds
+Run 92/100: 0.0934 seconds
+Run 93/100: 0.0884 seconds
+Run 94/100: 0.0905 seconds
+Run 95/100: 0.0924 seconds
+Run 96/100: 0.0908 seconds
+Run 97/100: 0.0915 seconds
+Run 98/100: 0.0911 seconds
+Run 99/100: 0.0918 seconds
+Run 100/100: 0.0897 seconds
+
+========================================
+Benchmark Results (SGI Reconstruction)
+========================================
+Number of runs: 100
+Mean time:      0.0911 seconds
+Std deviation:  0.0020 seconds
+Min time:       0.0877 seconds
+Max time:       0.1021 seconds

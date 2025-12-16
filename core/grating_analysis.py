@@ -2,7 +2,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
-from numpy.fft import ifft2, ifftshift
+from scipy.fft import ifft2, ifftshift
 from skimage.restoration import unwrap_phase
 from typing import Tuple, List, Dict, Optional, Union, Any
 
@@ -321,13 +321,13 @@ def extract_harmonic(
     sub_fft = img_fft[y_start:y_end, x_start:x_end]
 
     # 6. Apply circular Gaussian window to reduce spectral leakage
+    # Use broadcasting instead of meshgrid for memory efficiency
     ny, nx = sub_fft.shape
-    y_coords = np.linspace(-1, 1, ny)
-    x_coords = np.linspace(-1, 1, nx)
-    xx, yy = np.meshgrid(x_coords, y_coords)
-    r = np.sqrt(xx**2 + yy**2)
-    sigma = 0.5  # Gaussian sigma (controls window width)
-    gaussian_2d = np.exp(-(r**2) / (2 * sigma**2))
+    y_coords = np.linspace(-1, 1, ny)[:, None]  # (ny, 1)
+    x_coords = np.linspace(-1, 1, nx)[None, :]  # (1, nx)
+    r_sq = y_coords**2 + x_coords**2  # Broadcasting: (ny, nx)
+    sigma_sq_2 = 0.5  # 2 * sigma^2 where sigma = 0.5
+    gaussian_2d = np.exp(-r_sq / sigma_sq_2)
     sub_fft = sub_fft * gaussian_2d
 
     # Get peak value for plotting
@@ -543,18 +543,10 @@ def single_grating_harmonic_images(
         _plot_harmonic_spectra(img_fft00, img_fft01, img_fft10)
 
     # Inverse FFT to spatial domain
+    # Use scipy.fft which is generally faster than numpy.fft
     img00 = ifft2(ifftshift(img_fft00), norm="ortho")
-
-    # Handle potential NaNs in higher harmonics (check before IFFT, WavePy approach)
-    if np.all(np.isfinite(img_fft01)):
-        img01 = ifft2(ifftshift(img_fft01), norm="ortho")
-    else:
-        img01 = img_fft01  # Pass through if invalid
-
-    if np.all(np.isfinite(img_fft10)):
-        img10 = ifft2(ifftshift(img_fft10), norm="ortho")
-    else:
-        img10 = img_fft10
+    img01 = ifft2(ifftshift(img_fft01), norm="ortho")
+    img10 = ifft2(ifftshift(img_fft10), norm="ortho")
 
     return img00, img01, img10
 

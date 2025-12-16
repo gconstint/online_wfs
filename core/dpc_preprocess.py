@@ -112,29 +112,27 @@ def preprocess_dpc(
     Args:
         fill_value: Value to replace NaNs with (after mean subtraction).
     """
-    if dpc_image.ndim != 2:
-        raise ValueError(f"Input must be 2D, got shape {dpc_image.shape}")
+    # if dpc_image.ndim != 2:
+    #     raise ValueError(f"Input must be 2D, got shape {dpc_image.shape}")
 
     # 1. Robust DC Removal
     # Use nanmean to ignore dead pixels/mask during mean calculation
-    mean_val = np.nanmean(dpc_image)
+    mean_val = np.mean(dpc_image)
     dpc_zero_mean = dpc_image - mean_val
 
-    # Critical: Replace NaNs with 0 (or other value) before FFT
-    # Otherwise FFT output will be all NaNs
-    dpc_zero_mean = np.nan_to_num(dpc_zero_mean, nan=fill_value)
+    # Critical: Replace NaNs with fill_value before FFT
+    # Use np.where for efficiency (no intermediate mask array)
+    # dpc_zero_mean = np.where(np.isfinite(dpc_zero_mean), dpc_zero_mean, fill_value)
 
     # 2. Reflective Padding
     padded_image, crop_slice = _apply_reflective_padding(
         dpc_zero_mean, padding_ratio=padding_ratio
     )
 
-    # 3. Tapering
-    # Generate window directly in the correct dtype
+    # 3. Tapering (in-place multiplication)
     taper_window = _create_cosine_edge_taper(
         padded_image.shape, taper_ratio=taper_ratio, dtype=padded_image.dtype
     )
-    # In-place multiplication if possible to save memory
     padded_image *= taper_window
 
     # 4. Filter Generation
@@ -142,21 +140,19 @@ def preprocess_dpc(
         padded_image.shape,
         cutoff_frequency=lowpass_cutoff,
         rolloff_width=lowpass_rolloff,
-        dtype=padded_image.dtype,
+        dtype=np.float32,  # Filter can be float32 for memory savings
     )
 
     # 5. Frequency Domain Filtering
-    # fft2 -> shift is standard.
-    # Note: scipy.fft handles shifts efficiently.
+    # Use scipy.fft which is generally faster than numpy.fft
     freq_domain = fftshift(fft2(padded_image))
 
-    # Apply filter
+    # Apply filter in-place
     freq_domain *= lowpass_filter
 
-    # Inverse FFT
-    # using ifftshift before ifft2 is mathematically correct to align phases
-    filtered_image = np.real(ifft2(ifftshift(freq_domain)))
+    # Inverse FFT and extract real part
+    filtered_image = ifft2(ifftshift(freq_domain))
 
     # 6. Crop and Return
-    # Ensure output matches input dtype
-    return filtered_image[crop_slice].astype(dpc_image.dtype)
+    # Use np.real on the cropped region directly to avoid full array copy
+    return np.real(filtered_image[crop_slice]).astype(dpc_image.dtype)

@@ -1,34 +1,52 @@
 import numpy as np
-from numpy.fft import fft2, ifft2, fftfreq
+from scipy.fft import fft2, ifft2, fftfreq
 
 
 def _reflect_and_pad_gradient_fields(delta_x, delta_y):
     """
     反射并填充梯度场 (保持物理符号正确性)
+    优化版：使用预分配数组和直接赋值
     """
-    # x 方向的填充
-    delta_x_c1 = np.concatenate((delta_x, delta_x[::-1, :]), axis=0)
-    delta_x_c2 = np.concatenate((-delta_x[:, ::-1], -delta_x[::-1, ::-1]), axis=0)
-    delta_x = np.concatenate((delta_x_c1, delta_x_c2), axis=1)
+    h, w = delta_x.shape
+    h2, w2 = h * 2, w * 2
 
-    # y 方向的填充
-    delta_y_c1 = np.concatenate((delta_y, -delta_y[::-1, :]), axis=0)
-    delta_y_c2 = np.concatenate((delta_y[:, ::-1], -delta_y[::-1, ::-1]), axis=0)
-    delta_y = np.concatenate((delta_y_c1, delta_y_c2), axis=1)
+    # 预分配输出数组
+    gx = np.empty((h2, w2), dtype=delta_x.dtype)
+    gy = np.empty((h2, w2), dtype=delta_y.dtype)
 
-    return delta_x, delta_y
+    # x 方向梯度填充
+    # 左上 (原始)
+    gx[:h, :w] = delta_x
+    # 左下 (y 翻转)
+    gx[h:, :w] = delta_x[::-1, :]
+    # 右上 (x 翻转, 取负)
+    gx[:h, w:] = -delta_x[:, ::-1]
+    # 右下 (xy 翻转, 取负)
+    gx[h:, w:] = -delta_x[::-1, ::-1]
+
+    # y 方向梯度填充
+    # 左上 (原始)
+    gy[:h, :w] = delta_y
+    # 左下 (y 翻转, 取负)
+    gy[h:, :w] = -delta_y[::-1, :]
+    # 右上 (x 翻转)
+    gy[:h, w:] = delta_y[:, ::-1]
+    # 右下 (xy 翻转, 取负)
+    gy[h:, w:] = -delta_y[::-1, ::-1]
+
+    return gx, gy
 
 
 def _crop_to_central_quarter(array):
-    """裁剪回左上角原始区域"""
-    array, _ = np.array_split(array, 2, axis=0)
-    return np.array_split(array, 2, axis=1)[0]
+    """裁剪回左上角原始区域 (使用切片，更高效)"""
+    h, w = array.shape
+    return array[: h // 2, : w // 2]
 
 
 def _ensure_concave_shape(phase):
     """
     强制相位为下凹形状（碗状，Concave Up）。
-    通过对中心截线进行抛物线拟合来判断曲率方向，这种方法对倾斜（Tilt）不敏感，非常稳健。
+    通过对中心截线进行抛物线拟合来判断曲率方向。
     """
     H, W = phase.shape
 
@@ -36,22 +54,16 @@ def _ensure_concave_shape(phase):
     mid_row = phase[H // 2, :]
     mid_col = phase[:, W // 2]
 
-    # 定义坐标轴
+    # 使用 polyfit 进行快速二次拟合 (y = ax^2 + bx + c)
+    # 只关心二次项系数 a
     x = np.arange(W)
     y = np.arange(H)
 
-    # 使用 polyfit 进行快速二次拟合 (y = ax^2 + bx + c)
-    # 我们只关心二次项系数 a
-    # 如果 a > 0，开口向上 (凹面/Bowl)
-    # 如果 a < 0，开口向下 (凸面/Hill)
     coeff_x = np.polyfit(x, mid_row, 2)
     coeff_y = np.polyfit(y, mid_col, 2)
 
-    curvature_x = coeff_x[0]
-    curvature_y = coeff_y[0]
-
-    # 综合判断：如果两个方向的曲率之和小于0，说明整体是凸的，需要翻转
-    if (curvature_x + curvature_y) < 0:
+    # 综合判断：如果两个方向的曲率之和小于0，需要翻转
+    if (coeff_x[0] + coeff_y[0]) < 0:
         return -phase
 
     return phase
@@ -59,8 +71,8 @@ def _ensure_concave_shape(phase):
 
 def fc_method(delta_x, delta_y, reflected_pad=True):
     """
-    Frankot-Chellappa 积分算法
-    (已移除多余的去倾斜和滤波参数，保持核心纯净)
+    Frankot-Chellappa 积分算法 (优化版)
+    使用 scipy.fft 和 broadcasting 提升性能
     """
     # 1. 反射填充
     if reflected_pad:
@@ -70,24 +82,24 @@ def fc_method(delta_x, delta_y, reflected_pad=True):
 
     rows, cols = gx.shape
 
-    # 2. 频率网格
-    wx = fftfreq(cols) * 2 * np.pi
-    wy = fftfreq(rows) * 2 * np.pi
-    wx_grid, wy_grid = np.meshgrid(wx, wy)
+    # 2. 频率网格 (使用 scipy.fft.fftfreq 和 broadcasting)
+    wx = fftfreq(cols) * (2 * np.pi)  # 1D array (cols,)
+    wy = fftfreq(rows) * (2 * np.pi)  # 1D array (rows,)
 
     # 3. FFT
     fx = fft2(gx)
     fy = fft2(gy)
 
-    # 4. 频域积分
-    numerator = -1j * (wx_grid * fx + wy_grid * fy)
-    denominator = wx_grid**2 + wy_grid**2
+    # 4. 频域积分 (使用 broadcasting 代替 meshgrid)
+    # wx[None, :] -> (1, cols), wy[:, None] -> (rows, 1)
+    numerator = -1j * (wx[None, :] * fx + wy[:, None] * fy)
+    denominator = wx[None, :] ** 2 + wy[:, None] ** 2
 
-    # 处理奇点
+    # 处理奇点 (DC 分量)
     denominator[0, 0] = 1.0
     numerator[0, 0] = 0.0
 
-    # 5. IFFT
+    # 5. IFFT 并取实部
     phase_2D = np.real(ifft2(numerator / denominator))
 
     # 6. 裁剪
@@ -105,6 +117,9 @@ def dpc_integration(dpc_x, dpc_y, ensure_concave=True):
         dpc_x, dpc_y: 梯度图
         ensure_concave (bool): 是否强制输出为下凹（碗状）相位。
                                对于会聚光束(Converging)，相位通常是下凹的。
+
+    Returns:
+        ndarray: 积分重建的相位图
     """
     # 1. 执行积分
     phase = fc_method(dpc_x, dpc_y, reflected_pad=True)

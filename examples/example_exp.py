@@ -38,6 +38,7 @@ matplotlib.use("Agg")  # Non-interactive backend for thread safety
 
 import sys
 from pathlib import Path
+from datetime import datetime
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -46,58 +47,141 @@ import threading
 from queue import Queue
 
 from pipeline import task
-from core import plot_phase_error_profiles, calculate_wavelength
+from core import plot_phase_error_profiles, calculate_wavelength,plot_phase_fit_results
+
+# Output directory for saved plots
+OUTPUT_DIR = Path(__file__).parent.parent / "output"
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 
-def _output1_worker(queue: Queue) -> None:
+def _wavefront_worker(queue: Queue) -> None:
     """
-    Process and display focus adjustment parameters.
+    Process wavefront fitting results (checkpoint_wavefront).
+    Saves phase error profiles and phase fit results to output directory.
 
     Args:
-        queue (Queue): Thread-safe queue containing focus adjustment values
+        queue (Queue): Thread-safe queue containing wavefront data
     """
     while True:
-        value = queue.get()
-        if value is None:
-            # Sentinel value received: terminate worker
+        data = queue.get()
+        if data is None:
             queue.task_done()
             break
-        print("focus_adjust:", *value)
+        # Extract wavefront data
+        phase = data.get("phase")
+        fitted_phase = data.get("fitted_phase")
+        phase_error = data.get("phase_error")
+        fit_params = data.get("fit_params")
+        virtual_pixel_size = data.get("virtual_pixel_size")
+        wavelength = data.get("wavelength")
+
+        # Create output directory with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_dir = OUTPUT_DIR / f"wavefront_exp_{timestamp}"
+        save_dir.mkdir(exist_ok=True)
+
+        # Save phase fit results
+        if phase is not None and fitted_phase is not None and fit_params is not None:
+            plot_phase_fit_results(
+                phase,
+                fitted_phase,
+                fit_params,
+                pixel_size=virtual_pixel_size,
+                save_path=str(save_dir),
+            )
+
+        # Save phase error profiles
+        if phase_error is not None:
+            plot_phase_error_profiles(
+                phase_error, virtual_pixel_size, wavelength, save_path=str(save_dir)
+            )
+
+        print(f"[Wavefront] Results saved to: {save_dir}")
         queue.task_done()
 
 
-def _output2_worker(queue: Queue) -> None:
+def _aberration_worker(queue: Queue) -> None:
     """
-    Generate and display phase error profile visualizations.
+    Process aberration analysis results (checkpoint_aberration).
 
     Args:
-        queue (Queue): Thread-safe queue containing phase error data
+        queue (Queue): Thread-safe queue containing aberration data
     """
     while True:
-        value = queue.get()
-        if value is None:
-            # Sentinel value received: terminate worker
+        data = queue.get()
+        if data is None:
             queue.task_done()
             break
-        plot_phase_error_profiles(*value)
+        # Extract aberration data
+        calibration_result = data.get("calibration_result")
+        zernike_results = data.get("zernike_results")
+        # Process: e.g., print focus adjustment
+        if calibration_result is not None:
+            R_avg = calibration_result.get("R_avg", calibration_result.get("R"))
+            Delta_avg = calibration_result.get(
+                "Delta_avg", calibration_result.get("Delta_z")
+            )
+            if R_avg is not None:
+                print(f"[Aberration] Focus distance: {R_avg * 1e3:.2f} mm")
+            if Delta_avg is not None:
+                print(f"[Aberration] Focus offset: {Delta_avg * 1e3:.2f} mm")
+        if zernike_results is not None:
+            # Print RMS residual error
+            rms_error = zernike_results.get("rms_error")
+            if rms_error is not None:
+                print(f"[Aberration] Zernike RMS residual: {rms_error:.4f} rad")
+
+            # Print top aberrations from aberration_analysis
+            aberration_analysis = zernike_results.get("aberration_analysis")
+            if aberration_analysis:
+                # Sort by RMS magnitude and print top 5
+                sorted_aberr = sorted(
+                    aberration_analysis.items(),
+                    key=lambda x: abs(x[1]["rms_nm"]),
+                    reverse=True,
+                )
+                print("[Aberration] Top 5 Zernike terms:")
+                for key, aberr in sorted_aberr[:5]:
+                    name = aberr["name"]
+                    rms_nm = aberr["rms_nm"]
+                    print(f"  {key}: {name} = {rms_nm:.3f} nm RMS")
         queue.task_done()
 
 
-def _output3_worker(queue: Queue) -> None:
+def _focus_worker(queue: Queue) -> None:
     """
-    Process and display focus position and size measurements.
+    Process focus analysis results (checkpoint_focus).
 
     Args:
         queue (Queue): Thread-safe queue containing focus analysis results
     """
     while True:
-        value = queue.get()
-        if value is None:
-            # Sentinel value received: terminate worker
+        data = queue.get()
+        if data is None:
             queue.task_done()
             break
-        focus_position, focus_size = value
-        print(f"focus_position:{focus_position}; focus_size:{focus_size}")
+        # Extract focus data
+        focus_position = data.get("focus_position")
+        focus_size = data.get("focus_size")
+        beam_position = data.get("beam_position")
+        beam_size = data.get("beam_size")
+        # Process: e.g., print focus info
+        if focus_position is not None:
+            print(
+                f"[Focus] Position: ({focus_position[0] * 1e9:.1f}, {focus_position[1] * 1e9:.1f}) nm"
+            )
+        if focus_size is not None:
+            print(
+                f"[Focus] Size (FWHM): {focus_size['fwhm_x'] * 1e9:.1f} x {focus_size['fwhm_y'] * 1e9:.1f} nm"
+            )
+        if beam_position is not None:
+            print(
+                f"[Imager] Beam position: ({beam_position[0] * 1e6:.3f}, {beam_position[1] * 1e6:.3f}) um"
+            )
+        if beam_size is not None:
+            print(
+                f"[Imager] Beam size (FWHM): {beam_size['fwhm_x'] * 1e6:.3f} x {beam_size['fwhm_y'] * 1e6:.3f} um"
+            )
         queue.task_done()
 
 
@@ -135,39 +219,48 @@ def main():
     )
 
     # Initialize Multi-threaded Output Processing
+    # Map checkpoint names to their queues
     queues = {
-        "output1": Queue(),  # Focus adjustment parameters
-        "output2": Queue(),  # Phase error profiles
-        "output3": Queue(),  # Focus analysis results
+        "checkpoint_wavefront": Queue(),  # Wavefront fitting results
+        "checkpoint_aberration": Queue(),  # Aberration analysis results
+        "checkpoint_focus": Queue(),  # Focus analysis results
     }
 
     # Configure Worker Threads
     workers = {
-        "output1": threading.Thread(
-            target=_output1_worker, args=(queues["output1"],), name="output1"
+        "checkpoint_wavefront": threading.Thread(
+            target=_wavefront_worker,
+            args=(queues["checkpoint_wavefront"],),
+            name="wavefront_worker",
+            daemon=True,  # Daemon thread for clean exit
         ),
-        "output2": threading.Thread(
-            target=_output2_worker, args=(queues["output2"],), name="output2"
+        "checkpoint_aberration": threading.Thread(
+            target=_aberration_worker,
+            args=(queues["checkpoint_aberration"],),
+            name="aberration_worker",
+            daemon=True,
         ),
-        "output3": threading.Thread(
-            target=_output3_worker, args=(queues["output3"],), name="output3"
+        "checkpoint_focus": threading.Thread(
+            target=_focus_worker,
+            args=(queues["checkpoint_focus"],),
+            name="focus_worker",
+            daemon=True,
         ),
     }
 
     # Launch Processing Threads
     for thread in workers.values():
-        # Initialize parallel processing for each output type
         thread.start()
 
     try:
         # Execute Main Processing Pipeline
-        for output, value in task(params):
-            queue = queues.get(output)
+        for checkpoint_name, data in task(params, verbose=False, show_plots=False):
+            queue = queues.get(checkpoint_name)
             if queue is None:
-                print(f"Unhandled output type: {output}")
+                # Unknown checkpoint, skip
                 continue
-            # Distribute results to appropriate processing threads
-            queue.put(value)
+            # Distribute results to appropriate processing threads (non-blocking)
+            queue.put(data)
     finally:
         # Graceful Shutdown Sequence
         for queue in queues.values():
@@ -178,7 +271,7 @@ def main():
             queue.join()
         for thread in workers.values():
             # Ensure clean thread termination
-            thread.join()
+            thread.join(timeout=1.0)
 
 
 if __name__ == "__main__":
