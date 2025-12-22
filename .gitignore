@@ -52,6 +52,6 @@ Icon
 __pycache__
 core/__pycache__
 
-output/*
+output
 
 *.prof
