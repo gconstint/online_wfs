@@ -16,9 +16,9 @@ The pipeline includes:
 7. Focus analysis via back propagation
 """
 
-from os import cpu_count
 from typing import Dict, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor
+from os import cpu_count
 
 import numpy as np
 from scipy.fft import fft2, fftshift
