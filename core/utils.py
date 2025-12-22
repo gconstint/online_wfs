@@ -42,21 +42,18 @@ def load_images(
     tuple
         (sample_image, dark_image, flat_image) as float32 arrays
     """
-    # Load and convert sample image
-    image = tifffile.imread(image_path)
-    image = np.array(image).astype(np.float32)
+    # Load and convert sample image (use copy=False for faster conversion)
+    image = tifffile.imread(image_path).astype(np.float32, copy=False)
 
     # Handle dark image
     if dark_image_path:
-        dark_image = tifffile.imread(dark_image_path)
-        dark_image = np.array(dark_image).astype(np.float32)
+        dark_image = tifffile.imread(dark_image_path).astype(np.float32, copy=False)
     else:
         dark_image = None
 
     # Handle flat image
     if flat_image_path:
-        flat_image = tifffile.imread(flat_image_path)
-        flat_image = np.array(flat_image).astype(np.float32)
+        flat_image = tifffile.imread(flat_image_path).astype(np.float32, copy=False)
     else:
         flat_image = None
 
