@@ -121,33 +121,92 @@ def image_correction(
     ----
     仍然兼容旧参数名: I_self, I_flat, I_dark, eps
     """
-    # 转换为浮点数避免溢出
-    image = np.asarray(image, dtype=np.float64)
+    # Use float32 for faster computation (sufficient precision for image processing)
+    image = np.asarray(image, dtype=np.float32)
 
     # Case 3 and Case 4: No flat field correction needed
     if flat is None:
         if dark is not None:
-            dark = np.asarray(dark, dtype=np.float64)
+            dark = np.asarray(dark, dtype=np.float32)
             return image - dark  # Simple dark subtraction, no division needed
         else:
-            return image.copy()  # No correction needed, return copy
+            return image  # No correction needed, return as-is (already float32)
 
     # Case 1 and Case 2: Flat field correction
-    flat = np.asarray(flat, dtype=np.float64)
+    flat = np.asarray(flat, dtype=np.float32)
 
     if dark is not None:
-        dark = np.asarray(dark, dtype=np.float64)
+        dark = np.asarray(dark, dtype=np.float32)
         numerator = image - dark
         denominator = flat - dark
     else:
         numerator = image
         denominator = flat
 
-    # Prevent division by near-zero values
-    valid_mask = denominator > epsilon
-    corrected_image = np.zeros_like(numerator, dtype=np.float64)
-    corrected_image[valid_mask] = numerator[valid_mask] / (
-        denominator[valid_mask] + epsilon
-    )
+    # Optimized division with epsilon added to denominator directly
+    # Avoid creating boolean mask array for better performance
+    corrected_image = numerator / (denominator + epsilon)
 
     return corrected_image
+
+
+def calculate_rotation_angle(
+    params: dict,
+    verbose: bool = True,
+    crop_size: int = 2048,
+) -> float:
+    """
+    Calculate the rotation angle needed to align grating peaks horizontally.
+
+    Call this once on a reference image, then pass the rotation_angle to
+    load_and_preprocess_image() for subsequent frames to skip expensive
+    FFT + peak finding computation.
+
+    Parameters
+    ----------
+    params : dict
+        Configuration parameters with image_path, pixel_size, pattern_period
+    verbose : bool
+        Whether to print status messages
+    crop_size : int
+        Size to crop the image to (default: 2048)
+
+    Returns
+    -------
+    float
+        Rotation angle in degrees
+    """
+    from os import cpu_count
+    from scipy.fft import fft2, fftshift
+    from .grating_analysis import (
+        calculate_harmonic_periods,
+        accurate_harmonic_periods,
+        calculate_rotation_angle_from_peaks,
+    )
+
+    # Load and preprocess image
+    img, dark, flat = load_images(
+        params["image_path"], params["dark_image_path"], params["flat_image_path"]
+    )
+    img = image_correction(img, flat=flat, dark=dark, epsilon=1e-8, normalize=False)
+    img_cropped = center_crop(img, target_size=crop_size)
+
+    # Calculate harmonic periods
+    harmonic_periods = calculate_harmonic_periods(
+        (img_cropped.shape[0], img_cropped.shape[1]),
+        params["pixel_size"],
+        params["pattern_period"],
+    )
+
+    # Compute FFT and find peaks
+    img32 = np.asarray(img_cropped, dtype=np.float32, order="C")
+    img_fft = fftshift(fft2(img32, norm="ortho", workers=cpu_count()))
+    _, peak_positions = accurate_harmonic_periods(img_fft, harmonic_periods)
+
+    # Calculate angle using core function
+    angle = calculate_rotation_angle_from_peaks(peak_positions)
+
+    if verbose:
+        print(f"Calculated rotation angle: {angle:.4f} degrees")
+
+    return angle

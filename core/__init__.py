@@ -11,7 +11,7 @@ from .dpc_preprocess import preprocess_dpc
 from .grating_analysis import (
     analyze_grating_data,
     accurate_harmonic_periods,
-    rotate_image_by_peaks,
+    calculate_rotation_angle_from_peaks,
     calculate_harmonic_periods,
 )
 from .phase_analysis import dpc_integration
@@ -31,6 +31,7 @@ from .utils import (
     calculate_wavelength,
     load_images,
     calculate_magnification_correction,
+    calculate_rotation_angle,
 )
 from .zernike_analysis import (
     analyze_and_visualize_zernike,
@@ -56,7 +57,7 @@ __all__ = [
     # grating_analysis
     "analyze_grating_data",
     "accurate_harmonic_periods",
-    "rotate_image_by_peaks",
+    "calculate_rotation_angle_from_peaks",
     "calculate_harmonic_periods",
     # utils
     "calculate_magnification_correction",
@@ -77,6 +78,7 @@ __all__ = [
     "image_correction",
     "calculate_wavelength",
     "load_images",
+    "calculate_rotation_angle",
     # zernike_analysis
     "analyze_and_visualize_zernike",
     "perform_zernike_analysis",

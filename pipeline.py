@@ -16,7 +16,7 @@ The pipeline includes:
 7. Focus analysis via back propagation
 """
 
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor
 from os import cpu_count
 
@@ -43,13 +43,13 @@ from core import (
     # analyze_mirror_surface,
     select_circular_roi,
     accurate_harmonic_periods,
-    rotate_image_by_peaks,
 )
 
 # Constants
 DEFAULT_CROP_SIZE = 2048
 DEFAULT_LOWPASS_CUTOFF = 0.35
 MIN_MAGNIFICATION = 1.0
+DEFAULT_ROTATION_ANGLE = 1.142  # Pre-computed rotation angle (degrees)
 
 
 def print_separator(
@@ -75,6 +75,7 @@ def load_and_preprocess_image(
     params: Dict[str, Any],
     verbose: bool = True,
     do_rotation: bool = True,
+    rotation_angle: Optional[float] = None,
 ) -> np.ndarray:
     """
     Stage 1: Load images and perform preprocessing.
@@ -92,11 +93,15 @@ def load_and_preprocess_image(
     do_rotation : bool
         Whether to perform image rotation correction to align peaks
         horizontally (default: True)
+    rotation_angle : float, optional
+        Pre-computed rotation angle in degrees. If provided and do_rotation=True,
+        skips the expensive FFT + peak finding step and uses this angle directly.
+        Set to 0.0 to skip rotation entirely. (default: None, compute from image)
 
     Returns
     -------
-    tuple
-        (img_cropped, img_fft, harmonic_periods)
+    np.ndarray
+        FFT of preprocessed image (img_fft)
     """
     print_separator("STAGE 1: Image Loading and Preprocessing", verbose=verbose)
 
@@ -121,19 +126,45 @@ def load_and_preprocess_image(
 
     # Image rotation correction to align peaks horizontally
     if do_rotation:
-        # Step 1: Compute initial FFT to find peak positions
-        img32 = np.asarray(img_cropped, dtype=np.float32, order="C")
-        img_fft_init = fftshift(fft2(img32, norm="ortho", workers=cpu_count()))
+        if rotation_angle is not None:
+            # Use pre-computed rotation angle (skip expensive FFT + peak finding)
+            angle = rotation_angle
+        else:
+            # Step 1: Compute initial FFT to find peak positions
+            img32 = np.asarray(img_cropped, dtype=np.float32, order="C")
+            img_fft_init = fftshift(fft2(img32, norm="ortho", workers=cpu_count()))
 
-        # Step 2: Find accurate peak positions for 00, 01, 10 harmonics
-        _, peak_positions = accurate_harmonic_periods(img_fft_init, harmonic_periods)
+            # Step 2: Find accurate peak positions for 00, 01, 10 harmonics
+            _, peak_positions = accurate_harmonic_periods(
+                img_fft_init, harmonic_periods
+            )
 
-        # Step 3: Rotate image to align 0th and 1st order peaks horizontally
-        img_cropped_rotated, rotation_angle = rotate_image_by_peaks(
-            img_cropped, peak_positions
-        )
+            # Step 3: Calculate rotation angle from peak positions
+            peak_00 = peak_positions["00"]
+            peak_01 = peak_positions["01"]
+            peak_10 = peak_positions["10"]
+            delta_y_h = peak_01[0] - peak_00[0]
+            delta_x_h = peak_01[1] - peak_00[1]
+            angle_h = np.arctan2(delta_y_h, delta_x_h) * 180 / np.pi
+            delta_y_v = peak_10[0] - peak_00[0]
+            delta_x_v = peak_10[1] - peak_00[1]
+            angle_v = np.arctan2(delta_y_v, delta_x_v) * 180 / np.pi - 90
+            angle = (angle_h + angle_v) / 2
+
         if verbose:
-            print(f"Image rotation correction: {rotation_angle:.4f} degrees")
+            print(f"Image rotation correction: {angle:.4f} degrees")
+
+        # Apply rotation if angle is non-zero
+        if abs(angle) > 1e-6:
+            import cv2
+
+            rows, cols = img_cropped.shape
+            rotation_matrix = cv2.getRotationMatrix2D((cols / 2, rows / 2), angle, 1)
+            img_cropped_rotated = cv2.warpAffine(
+                img_cropped, rotation_matrix, (cols, rows)
+            )
+        else:
+            img_cropped_rotated = img_cropped
 
         # Compute FFT for frequency domain analysis (on rotated image)
         img32_rotated = np.asarray(img_cropped_rotated, dtype=np.float32, order="C")

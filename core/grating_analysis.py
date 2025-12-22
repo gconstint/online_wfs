@@ -1,4 +1,3 @@
-import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
@@ -462,20 +461,15 @@ def accurate_harmonic_periods(
     return [exp_period_v, exp_period_h], peak_positions
 
 
-def rotate_image_by_peaks(
-    img: np.ndarray, peak_positions: Dict[str, List[int]]
-) -> Tuple[np.ndarray, float]:
+def calculate_rotation_angle_from_peaks(peak_positions: Dict[str, List[int]]) -> float:
     """
-    Rotate image to align grating axes based on harmonic peak positions.
+    Calculate the rotation angle to align grating axes based on harmonic peak positions.
 
     Args:
-        img (np.ndarray): Input image.
         peak_positions (Dict): Peak positions {'00', '01', '10'}.
 
     Returns:
-        Tuple:
-            - img_rotated (np.ndarray): Rotated image.
-            - angle (float): Rotation angle in degrees.
+        float: Rotation angle in degrees.
     """
     peak_00 = peak_positions["00"]
     peak_01 = peak_positions["01"]
@@ -494,12 +488,7 @@ def rotate_image_by_peaks(
     # Average angle
     angle = (angle_h + angle_v) / 2
 
-    # Rotate image
-    rows, cols = img.shape
-    rotation_matrix = cv2.getRotationMatrix2D((cols / 2, rows / 2), angle, 1)
-    img_rotated = cv2.warpAffine(img, rotation_matrix, (cols, rows))
-
-    return img_rotated, angle
+    return angle
 
 
 # =============================================================================

@@ -20,8 +20,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import platform
 import numpy as np
 import scipy
-from scipy.fft import fft2, fftshift
-from os import cpu_count
 
 from pipeline import (
     load_and_preprocess_image,
@@ -152,13 +150,13 @@ def benchmark_stage_by_stage(params: dict, n_runs: int = 5) -> dict:
     }
 
     descriptions = {
-        "stage1_load_preprocess": "Load images, correction, crop, FFT",
-        "stage2_harmonic_dpc": "Extract harmonics, compute DPC signals",
+        "stage1_load_preprocess": "Load images, crop, FFT",
+        "stage2_harmonic_dpc": "Extract harmonics, compute DPC",
         "stage3_magnification": "Apply magnification correction",
         "stage4_phase_recon": "Lowpass filter, DPC integration",
         "stage5_wavefront_fit": "Parabolic wavefront fitting",
-        "stage6_aberration": "ROI selection, Zernike analysis",
-        "stage7_beam_detector": "Beam position & size at detector",
+        "stage6_aberration": "ROI + Zernike analysis",
+        "stage7_beam_detector": "Beam position & size",
         "stage8_focus_prop": "Fresnel propagation to focus",
     }
 
