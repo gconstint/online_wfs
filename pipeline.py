@@ -18,6 +18,7 @@ The pipeline includes:
 
 from os import cpu_count
 from typing import Dict, Any, Tuple
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 from scipy.fft import fft2, fftshift
@@ -680,15 +681,93 @@ def task(
         dpc_x_corrected, dpc_y_corrected, virtual_pixel_size, verbose=verbose
     )
 
-    # Stage 5: Wavefront Fitting
-    fitted_phase, phase_error, fit_params = fit_wavefront(
-        phase,
-        virtual_pixel_size,
-        params["wavelength"],
-        params,
-        verbose=verbose,
-        show_plots=show_plots,
-    )
+    # =========================================================================
+    # Parallel Processing: Two Independent Paths
+    # =========================================================================
+    # Path 1: fit_wavefront -> analyze_aberrations (wavefront & aberration analysis)
+    # Path 2: analyze_beam_at_detector -> analyze_focus_by_propagation (focus analysis)
+    # =========================================================================
+
+    def _path1_wavefront_aberration():
+        """Path 1: Wavefront fitting and aberration analysis."""
+        # Stage 5: Wavefront Fitting
+        fitted_phase, phase_error, fit_params = fit_wavefront(
+            phase,
+            virtual_pixel_size,
+            params["wavelength"],
+            params,
+            verbose=verbose,
+            show_plots=False,  # Disable plots in parallel execution
+        )
+
+        # Stage 6: ROI Selection and Aberration Analysis
+        aberration_result = analyze_aberrations(
+            fitted_phase=fitted_phase,
+            phase_error=phase_error,
+            fit_params=fit_params,
+            params=params,
+            virtual_pixel_size=virtual_pixel_size,
+            interactive=False,  # Disable interactive mode in parallel
+            verbose=verbose,
+            show_plots=False,  # Disable plots in parallel execution
+        )
+
+        return {
+            "fitted_phase": fitted_phase,
+            "phase_error": phase_error,
+            "fit_params": fit_params,
+            "aberration_result": aberration_result,
+        }
+
+    def _path2_focus_analysis():
+        """Path 2: Beam characterization and focus analysis."""
+        # Stage 7: Beam Characterization at Detector Plane
+        beam_position, beam_size = analyze_beam_at_detector(
+            int00,
+            virtual_pixel_size,
+            verbose=verbose,
+            show_plots=False,  # Disable plots in parallel execution
+        )
+
+        # Stage 8: Focus Analysis via Back Propagation
+        focus_result = analyze_focus_by_propagation(
+            int00=int00,
+            phase=phase,
+            virtual_pixel_size=virtual_pixel_size,
+            wavelength=params["wavelength"],
+            propagation_distance=params["total_dist"],
+            beam_size=beam_size,
+            verbose=verbose,
+            show_plots=False,  # Disable plots in parallel execution
+        )
+
+        return {
+            "beam_position": beam_position,
+            "beam_size": beam_size,
+            "focus_result": focus_result,
+        }
+
+    # Execute both paths in parallel using ThreadPoolExecutor
+    print_separator("PARALLEL EXECUTION: Path 1 & Path 2", verbose=verbose)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_path1 = executor.submit(_path1_wavefront_aberration)
+        future_path2 = executor.submit(_path2_focus_analysis)
+
+        # Wait for both paths to complete and get results
+        path1_result = future_path1.result()
+        path2_result = future_path2.result()
+
+    # Extract results from Path 1
+    fitted_phase = path1_result["fitted_phase"]
+    phase_error = path1_result["phase_error"]
+    fit_params = path1_result["fit_params"]
+    aberration_result = path1_result["aberration_result"]
+
+    # Extract results from Path 2
+    beam_position = path2_result["beam_position"]
+    beam_size = path2_result["beam_size"]
+    focus_result = path2_result["focus_result"]
 
     # Checkpoint 1: Wavefront fitting results (after Stage 5)
     yield (
@@ -703,18 +782,6 @@ def task(
         },
     )
 
-    # Stage 6: ROI Selection and Aberration Analysis
-    aberration_result = analyze_aberrations(
-        fitted_phase=fitted_phase,
-        phase_error=phase_error,
-        fit_params=fit_params,
-        params=params,
-        virtual_pixel_size=virtual_pixel_size,
-        interactive=show_plots,  # Only interactive if showing plots
-        verbose=verbose,
-        show_plots=show_plots,
-    )
-
     # Checkpoint 2: Aberration analysis results (after Stage 6)
     yield (
         "checkpoint_aberration",
@@ -726,23 +793,6 @@ def task(
             "wavelength": params["wavelength"],
             "virtual_pixel_size": virtual_pixel_size,
         },
-    )
-
-    # Stage 7: Beam Characterization at Detector Plane
-    beam_position, beam_size = analyze_beam_at_detector(
-        int00, virtual_pixel_size, verbose=verbose, show_plots=show_plots
-    )
-
-    # Stage 8: Focus Analysis via Back Propagation
-    focus_result = analyze_focus_by_propagation(
-        int00=int00,
-        phase=phase,
-        virtual_pixel_size=virtual_pixel_size,
-        wavelength=params["wavelength"],
-        propagation_distance=params["total_dist"],
-        beam_size=beam_size,
-        verbose=verbose,
-        show_plots=show_plots,
     )
 
     if verbose:
