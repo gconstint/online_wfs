@@ -614,7 +614,8 @@ def analyze_focus_by_propagation(
         )
 
     # Reconstruct complex field and propagate to focus
-    complex_field = int00 * np.exp(1j * phase)
+    # Note: use sqrt(int00) as amplitude since int00 is intensity
+    complex_field = np.sqrt(int00) * np.exp(1j * phase)
     focus_field = two_steps_fresnel_method(
         complex_field,
         wavelength,
@@ -626,9 +627,12 @@ def analyze_focus_by_propagation(
     )
 
     # Analyze focus spot properties
+    # Note: calculate_and_visualize_beam expects (py, px) i.e. (dy, dx) order
+    # Use abs(focus_field)**2 for intensity since focus_field is complex amplitude
+    focus_intensity = np.abs(focus_field) ** 2
     focus_position, focus_size = calculate_and_visualize_beam(
-        np.abs(focus_field),
-        (dx_focus, dy_focus),
+        focus_intensity,
+        (dy_focus, dx_focus),
         title="Focus Position and Size Analysis",
         show_plot=show_plots,
         verbose=verbose,

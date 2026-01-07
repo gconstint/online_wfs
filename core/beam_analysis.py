@@ -337,10 +337,12 @@ def plot_beam_visualization(
     height, width = intensity.shape
 
     # Calculate physical coordinates
-    x_size = width * virtual_pixel_size[0]
-    y_size = height * virtual_pixel_size[1]
-    x_coords = (np.arange(width) - width / 2) * virtual_pixel_size[0] * 1e6
-    y_coords = (np.arange(height) - height / 2) * virtual_pixel_size[1] * 1e6
+    # Note: virtual_pixel_size is (py, px) = (dy, dx) format
+    py, px = virtual_pixel_size
+    x_size = width * px
+    y_size = height * py
+    x_coords = (np.arange(width) - width / 2) * px * 1e6
+    y_coords = (np.arange(height) - height / 2) * py * 1e6
 
     # Calculate profiles
     horizontal_profile = np.mean(intensity, axis=0)
