@@ -4,11 +4,17 @@ DPC (Differential Phase Contrast) preprocessing module.
 Optimized for robustness against experimental noise (NaNs) and memory efficiency.
 """
 
+import functools
+from os import cpu_count
+
 import numpy as np
 
-# 建议使用 scipy.fft，通常比 numpy.fft 更快
-from scipy.fft import fft2, ifft2, fftshift, ifftshift
+# Use scipy.fft for better performance
+from scipy.fft import fft2, ifft2, fftshift, ifftshift, fftfreq
 from typing import Tuple
+
+# Module-level constant for parallel FFT
+_CPU_COUNT = cpu_count() or 4
 
 
 def _create_cosine_edge_taper(
@@ -41,6 +47,24 @@ def _create_cosine_edge_taper(
     return win_h[:, None] * win_w[None, :]
 
 
+@functools.lru_cache(maxsize=8)
+def _get_cached_taper_window(
+    height: int, width: int, taper_ratio: float = 0.08
+) -> np.ndarray:
+    """Cached version of cosine edge taper window."""
+    return _create_cosine_edge_taper((height, width), taper_ratio, dtype=np.float32)
+
+
+@functools.lru_cache(maxsize=8)
+def _get_cached_lowpass_filter(
+    height: int, width: int, cutoff_frequency: float = 0.35, rolloff_width: float = 0.08
+) -> np.ndarray:
+    """Cached version of raised cosine lowpass filter."""
+    return _create_raised_cosine_lowpass_filter(
+        (height, width), cutoff_frequency, rolloff_width, dtype=np.float32
+    )
+
+
 def _create_raised_cosine_lowpass_filter(
     image_shape: Tuple[int, int],
     cutoff_frequency: float = 0.35,
@@ -56,9 +80,9 @@ def _create_raised_cosine_lowpass_filter(
     f_pass = max(0.0, f_stop - rolloff_width)
 
     # Generate shifted frequency coordinates directly (-0.5 to 0.5)
-    # explicit fftshift logic applied to the axes generation
-    fy = np.fft.fftshift(np.fft.fftfreq(height)).astype(dtype)
-    fx = np.fft.fftshift(np.fft.fftfreq(width)).astype(dtype)
+    # Use scipy.fft for better performance
+    fy = fftshift(fftfreq(height)).astype(dtype)
+    fx = fftshift(fftfreq(width)).astype(dtype)
 
     # Use broadcasting to calculate radial frequency without full meshgrid
     # fy[:, None] is (H, 1), fx[None, :] is (1, W) -> result is (H, W)
@@ -129,29 +153,22 @@ def preprocess_dpc(
         dpc_zero_mean, padding_ratio=padding_ratio
     )
 
-    # 3. Tapering (in-place multiplication)
-    taper_window = _create_cosine_edge_taper(
-        padded_image.shape, taper_ratio=taper_ratio, dtype=padded_image.dtype
-    )
-    padded_image *= taper_window
+    # 3. Tapering using cached window
+    h, w = padded_image.shape
+    taper_window = _get_cached_taper_window(h, w, taper_ratio)
+    padded_image = padded_image * taper_window  # Avoid in-place for cached arrays
 
-    # 4. Filter Generation
-    lowpass_filter = _create_raised_cosine_lowpass_filter(
-        padded_image.shape,
-        cutoff_frequency=lowpass_cutoff,
-        rolloff_width=lowpass_rolloff,
-        dtype=np.float32,  # Filter can be float32 for memory savings
-    )
+    # 4. Filter Generation using cached filter
+    lowpass_filter = _get_cached_lowpass_filter(h, w, lowpass_cutoff, lowpass_rolloff)
 
-    # 5. Frequency Domain Filtering
-    # Use scipy.fft which is generally faster than numpy.fft
-    freq_domain = fftshift(fft2(padded_image))
+    # 5. Frequency Domain Filtering with multi-threading
+    freq_domain = fftshift(fft2(padded_image, workers=_CPU_COUNT))
 
     # Apply filter in-place
     freq_domain *= lowpass_filter
 
-    # Inverse FFT and extract real part
-    filtered_image = ifft2(ifftshift(freq_domain))
+    # Inverse FFT with multi-threading
+    filtered_image = ifft2(ifftshift(freq_domain), workers=_CPU_COUNT)
 
     # 6. Crop and Return
     # Use np.real on the cropped region directly to avoid full array copy

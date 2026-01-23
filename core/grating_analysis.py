@@ -1,9 +1,30 @@
+import functools
+from os import cpu_count
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
 from scipy.fft import ifft2, ifftshift
 from skimage.restoration import unwrap_phase
 from typing import Tuple, List, Dict, Optional, Union, Any
+
+
+# Module-level constants for performance
+_CPU_COUNT = cpu_count() or 4
+
+
+@functools.lru_cache(maxsize=16)
+def _get_gaussian_window(ny: int, nx: int) -> np.ndarray:
+    """
+    Get a cached 2D Gaussian window for spectral windowing.
+
+    Uses LRU cache to avoid recomputing for common window sizes.
+    """
+    y_coords = np.linspace(-1, 1, ny)[:, None]  # (ny, 1)
+    x_coords = np.linspace(-1, 1, nx)[None, :]  # (1, nx)
+    r_sq = y_coords**2 + x_coords**2  # Broadcasting: (ny, nx)
+    sigma_sq_2 = 0.5  # 2 * sigma^2 where sigma = 0.5
+    return np.exp(-r_sq / sigma_sq_2)
 
 
 # =============================================================================
@@ -319,14 +340,8 @@ def extract_harmonic(
 
     sub_fft = img_fft[y_start:y_end, x_start:x_end]
 
-    # 6. Apply circular Gaussian window to reduce spectral leakage
-    # Use broadcasting instead of meshgrid for memory efficiency
-    ny, nx = sub_fft.shape
-    y_coords = np.linspace(-1, 1, ny)[:, None]  # (ny, 1)
-    x_coords = np.linspace(-1, 1, nx)[None, :]  # (1, nx)
-    r_sq = y_coords**2 + x_coords**2  # Broadcasting: (ny, nx)
-    sigma_sq_2 = 0.5  # 2 * sigma^2 where sigma = 0.5
-    gaussian_2d = np.exp(-r_sq / sigma_sq_2)
+    # 6. Apply cached circular Gaussian window to reduce spectral leakage
+    gaussian_2d = _get_gaussian_window(sub_fft.shape[0], sub_fft.shape[1])
     sub_fft = sub_fft * gaussian_2d
 
     # Get peak value for plotting
@@ -531,11 +546,11 @@ def single_grating_harmonic_images(
     if plot_flag:
         _plot_harmonic_spectra(img_fft00, img_fft01, img_fft10)
 
-    # Inverse FFT to spatial domain
-    # Use scipy.fft which is generally faster than numpy.fft
-    img00 = ifft2(ifftshift(img_fft00), norm="ortho")
-    img01 = ifft2(ifftshift(img_fft01), norm="ortho")
-    img10 = ifft2(ifftshift(img_fft10), norm="ortho")
+    # Inverse FFT to spatial domain with multi-threading
+    # Use scipy.fft with workers for parallel execution
+    img00 = ifft2(ifftshift(img_fft00), norm="ortho", workers=_CPU_COUNT)
+    img01 = ifft2(ifftshift(img_fft01), norm="ortho", workers=_CPU_COUNT)
+    img10 = ifft2(ifftshift(img_fft10), norm="ortho", workers=_CPU_COUNT)
 
     return img00, img01, img10
 

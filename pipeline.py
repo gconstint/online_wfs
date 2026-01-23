@@ -48,7 +48,7 @@ from core import (
 # Constants
 DEFAULT_CROP_SIZE = 2048
 DEFAULT_LOWPASS_CUTOFF = 0.35
-MIN_MAGNIFICATION = 1.0
+# MIN_MAGNIFICATION = 1.0
 DEFAULT_ROTATION_ANGLE = 1.142  # Pre-computed rotation angle (degrees)
 
 
@@ -76,18 +76,23 @@ def load_and_preprocess_image(
     verbose: bool = True,
     do_rotation: bool = True,
     rotation_angle: Optional[float] = None,
+    img: Optional[np.ndarray] = None,
+    dark: Optional[np.ndarray] = None,
+    flat: Optional[np.ndarray] = None,
+    crop_size: int = DEFAULT_CROP_SIZE,
 ) -> np.ndarray:
     """
     Stage 1: Load images and perform preprocessing.
 
-    Loads raw, dark, and flat field images, applies corrections,
-    center-crops to standard size, and computes FFT.
+    Loads raw, dark, and flat field images (or uses provided arrays),
+    applies corrections, center-crops to standard size, and computes FFT.
 
     Parameters
     ----------
     params : dict
-        Configuration parameters with image_path, dark_image_path,
-        flat_image_path, pixel_size, pattern_period
+        Configuration parameters with pixel_size, pattern_period.
+        If img/dark/flat are not provided, also requires image_path,
+        dark_image_path, flat_image_path for file loading.
     verbose : bool
         Whether to print status messages
     do_rotation : bool
@@ -97,6 +102,15 @@ def load_and_preprocess_image(
         Pre-computed rotation angle in degrees. If provided and do_rotation=True,
         skips the expensive FFT + peak finding step and uses this angle directly.
         Set to 0.0 to skip rotation entirely. (default: None, compute from image)
+    img : np.ndarray, optional
+        Raw image data. If provided, skips file loading (for real-time analysis
+        via EPICS or other control systems).
+    dark : np.ndarray, optional
+        Dark field image. If None and img is provided, no dark subtraction.
+    flat : np.ndarray, optional
+        Flat field image. If None and img is provided, no flat correction.
+    crop_size : int, optional
+        Target size for center cropping (default: 2048).
 
     Returns
     -------
@@ -105,16 +119,19 @@ def load_and_preprocess_image(
     """
     print_separator("STAGE 1: Image Loading and Preprocessing", verbose=verbose)
 
-    # Load images
-    img, dark, flat = load_images(
-        params["image_path"], params["dark_image_path"], params["flat_image_path"]
-    )
+    # Load images from file or use provided arrays
+    if img is None:
+        # File path mode: load from disk
+        img, dark, flat = load_images(
+            params["image_path"], params["dark_image_path"], params["flat_image_path"]
+        )
+    # else: Direct data mode - use provided img, dark, flat arrays
 
     # Apply dark field subtraction and flat field correction
     img = image_correction(img, flat=flat, dark=dark, epsilon=1e-8, normalize=False)
 
     # Center-crop to standard size
-    img_cropped = center_crop(img, target_size=DEFAULT_CROP_SIZE)
+    img_cropped = center_crop(img, target_size=crop_size)
 
     # Calculate theoretical harmonic periods
     harmonic_periods = calculate_harmonic_periods(
@@ -285,6 +302,7 @@ def reconstruct_phase(
     dpc_y: np.ndarray,
     virtual_pixel_size: Tuple[float, float],
     verbose: bool = True,
+    lowpass_cutoff: float = DEFAULT_LOWPASS_CUTOFF,
 ) -> np.ndarray:
     """
     Stage 4: Preprocess DPC and reconstruct phase using integration.
@@ -302,6 +320,8 @@ def reconstruct_phase(
         Effective pixel size (dy, dx) [m]
     verbose : bool
         Whether to print status messages
+    lowpass_cutoff : float, optional
+        Cutoff frequency for lowpass filter (default: 0.35).
 
     Returns
     -------
@@ -313,8 +333,8 @@ def reconstruct_phase(
     )
 
     # Apply lowpass filtering
-    dpc_x_filtered = preprocess_dpc(dpc_x, lowpass_cutoff=DEFAULT_LOWPASS_CUTOFF)
-    dpc_y_filtered = preprocess_dpc(dpc_y, lowpass_cutoff=DEFAULT_LOWPASS_CUTOFF)
+    dpc_x_filtered = preprocess_dpc(dpc_x, lowpass_cutoff=lowpass_cutoff)
+    dpc_y_filtered = preprocess_dpc(dpc_y, lowpass_cutoff=lowpass_cutoff)
 
     # Convert DPC from rad/pixel to rad/m for integration
     dpc_x_per_meter = dpc_x_filtered * virtual_pixel_size[1]
@@ -666,6 +686,12 @@ def task(
     show_plots: bool = True,
     do_rotation: bool = False,
     parallel: bool = True,
+    img: Optional[np.ndarray] = None,
+    dark: Optional[np.ndarray] = None,
+    flat: Optional[np.ndarray] = None,
+    crop_size: int = DEFAULT_CROP_SIZE,
+    rotation_angle: Optional[float] = None,
+    lowpass_cutoff: float = DEFAULT_LOWPASS_CUTOFF,
 ):
     """
     Execute the complete XGI wavefront reconstruction pipeline.
@@ -693,6 +719,20 @@ def task(
         When True, Path 1 (wavefront + aberration) and Path 2 (focus analysis)
         run concurrently using ThreadPoolExecutor. Note: show_plots and
         interactive mode are automatically disabled in parallel mode.
+    img : np.ndarray, optional
+        Raw image data. If provided, skips file loading (for real-time analysis
+        via EPICS or other control systems).
+    dark : np.ndarray, optional
+        Dark field image. If None and img is provided, no dark subtraction.
+    flat : np.ndarray, optional
+        Flat field image. If None and img is provided, no flat correction.
+    crop_size : int, optional
+        Target size for center cropping (default: 2048).
+    rotation_angle : float, optional
+        Pre-computed rotation angle in degrees. If provided and do_rotation=True,
+        skips the expensive FFT + peak finding step.
+    lowpass_cutoff : float, optional
+        Cutoff frequency for lowpass filter in DPC preprocessing (default: 0.35).
 
     Yields
     ------
@@ -703,7 +743,14 @@ def task(
     effective_show_plots = show_plots if not parallel else False
     # Stage 1: Image Loading and Preprocessing
     img_fft = load_and_preprocess_image(
-        params, verbose=verbose, do_rotation=do_rotation
+        params,
+        verbose=verbose,
+        do_rotation=do_rotation,
+        rotation_angle=rotation_angle,
+        img=img,
+        dark=dark,
+        flat=flat,
+        crop_size=crop_size,
     )
 
     # Stage 2: Harmonic Extraction and DPC Calculation
@@ -721,7 +768,11 @@ def task(
 
     # Stage 4: DPC Preprocessing and Phase Reconstruction
     phase = reconstruct_phase(
-        dpc_x_corrected, dpc_y_corrected, virtual_pixel_size, verbose=verbose
+        dpc_x_corrected,
+        dpc_y_corrected,
+        virtual_pixel_size,
+        verbose=verbose,
+        lowpass_cutoff=lowpass_cutoff,
     )
 
     # =========================================================================

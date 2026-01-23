@@ -70,7 +70,7 @@ def center_crop(img, target_size):
     """
     Center-crop a 2D image array to target_size x target_size.
     If the image is smaller than target_size in a dimension, that dimension is left as-is.
-    Returns the cropped image.
+    Returns a contiguous array for optimal FFT performance.
     """
     height, width = img.shape
     if height > target_size:
@@ -87,7 +87,11 @@ def center_crop(img, target_size):
         start_w = 0
         end_w = width
 
-    return img[start_h:end_h, start_w:end_w]
+    cropped = img[start_h:end_h, start_w:end_w]
+    # Ensure contiguous memory layout for faster FFT
+    if not cropped.flags["C_CONTIGUOUS"]:
+        return np.ascontiguousarray(cropped, dtype=np.float32)
+    return cropped
 
 
 def image_correction(

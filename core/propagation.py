@@ -1,5 +1,9 @@
 import numpy as np
+from os import cpu_count
 from scipy.fft import fft2, ifft2, fftshift, ifftshift, fftfreq
+
+# Module-level constant for parallel FFT
+_CPU_COUNT = cpu_count() or 4
 
 
 def two_steps_fresnel_method(
@@ -58,8 +62,8 @@ def two_steps_fresnel_method(
         * (coeff_x1 * x[:, None] ** 2 + coeff_y1 * y[None, :] ** 2)
     )
 
-    # 使用 scipy.fft (通常比 numpy.fft 快)
-    E1 = fftshift(fft2(E * phase1))
+    # FFT with multi-threading
+    E1 = fftshift(fft2(E * phase1, workers=_CPU_COUNT))
 
     # 计算频率网格 (使用 broadcasting)
     fx = fftshift(fftfreq(Nx, dx))
@@ -75,7 +79,8 @@ def two_steps_fresnel_method(
         * z
         * (coeff_fx * fx[:, None] ** 2 + coeff_fy * fy[None, :] ** 2)
     )
-    E2 = ifft2(ifftshift(phase2 * E1))
+    # IFFT with multi-threading
+    E2 = ifft2(ifftshift(phase2 * E1), workers=_CPU_COUNT)
 
     # 最终相位修正
     # 预计算缩放后的坐标

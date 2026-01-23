@@ -1,5 +1,10 @@
+from os import cpu_count
+
 import numpy as np
 from scipy.fft import fft2, ifft2, fftfreq
+
+# Module-level constant for parallel FFT
+_CPU_COUNT = cpu_count() or 4
 
 
 def _reflect_and_pad_gradient_fields(delta_x, delta_y):
@@ -86,9 +91,9 @@ def fc_method(delta_x, delta_y, reflected_pad=True):
     wx = fftfreq(cols) * (2 * np.pi)  # 1D array (cols,)
     wy = fftfreq(rows) * (2 * np.pi)  # 1D array (rows,)
 
-    # 3. FFT
-    fx = fft2(gx)
-    fy = fft2(gy)
+    # 3. FFT with multi-threading
+    fx = fft2(gx, workers=_CPU_COUNT)
+    fy = fft2(gy, workers=_CPU_COUNT)
 
     # 4. 频域积分 (使用 broadcasting 代替 meshgrid)
     # wx[None, :] -> (1, cols), wy[:, None] -> (rows, 1)
@@ -99,8 +104,8 @@ def fc_method(delta_x, delta_y, reflected_pad=True):
     denominator[0, 0] = 1.0
     numerator[0, 0] = 0.0
 
-    # 5. IFFT 并取实部
-    phase_2D = np.real(ifft2(numerator / denominator))
+    # 5. IFFT with multi-threading and take real part
+    phase_2D = np.real(ifft2(numerator / denominator, workers=_CPU_COUNT))
 
     # 6. 裁剪
     if reflected_pad:

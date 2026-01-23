@@ -255,7 +255,7 @@ def save_all_plots(wavefront_data, aberration_data, focus_data, output_dir: Path
     save_zernike_bar(aberration_data, output_dir)
 
 
-def analyze(params: dict, output_dir: Path = None, verbose: bool = True):
+def analyze(params: dict, output_dir: Path = None, verbose: bool = False):
     """
     Complete analysis workflow: run pipeline, print results, save plots.
 
