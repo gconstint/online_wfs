@@ -180,7 +180,7 @@ def fit_parabolic_phase(
         fitted_phase: Reconstructed phase on the original grid.
         diagnostics: ``{"cost": float, "nfev": int, "rms": float}``
     """
-    # --- 坐标与单位 ---
+    # --- Coordinates and units ---
     if isinstance(pixel_size, (float, int)):
         py, px = float(pixel_size), float(pixel_size)
     else:
@@ -191,15 +191,15 @@ def fit_parabolic_phase(
     x = (np.arange(W) - W / 2) * px
     X, Y = np.meshgrid(x, y)
 
-    # --- 初值（兼容旧：x0,y0,R,A） ---
+    # --- Initial values (backward compatible: x0,y0,R,A) ---
     x0_init, y0_init, Rx_init, Ry_init, A_init = [0.0, 0.0, 0.0, 0.0, 0.0]
 
-    # 合理化初值
+    # Rationalize initial values
     field_size = max(W * px, H * py)
 
     max_R = 10.0 * field_size
 
-    # 避免 R 初值为 0 或过小
+    # Avoid R initial value being 0 or too small
     Rx_init = float(
         np.clip(Rx_init if Rx_init > 0 else field_size, field_size * 0.2, max_R)
     )
@@ -210,12 +210,12 @@ def fit_parabolic_phase(
         A_init if np.isfinite(A_init) else (np.nanmax(phase) - np.nanmin(phase)) / 2.0
     )
 
-    # 椭圆抛物面的初值：Rx=Ry=R_init；一阶倾斜默认 0；常数项取相位均值
+    # Elliptical paraboloid initial values: Rx=Ry=R_init; first-order tilt default 0; constant term takes phase mean
     tx_init = 0.0
     ty_init = 0.0
     phi0_init = float(np.nanmean(phase))
 
-    # --- 权重：Gaussian 边缘衰减 & NaN 处理 ---
+    # --- Weights: Gaussian edge decay & NaN handling ---
     # Initialise weight map of ones; NaNs become zero weight
     weights = np.ones_like(phase, dtype=np.float64)
     weights[np.isnan(phase)] = 0.0
@@ -235,11 +235,11 @@ def fit_parabolic_phase(
         weights[...] = 1.0
         weights[np.isnan(phase)] = 0.0
 
-    # --- 模型与残差 ---
-    # 注意：为了拟合稳定性，使用 Rx,Ry 直接做分母（保持 >0 的边界）
+    # --- Model and residuals ---
+    # Note: For fitting stability, use Rx,Ry directly as denominator (keep >0 bounds)
     def model(params):
         x0, y0, Rx, Ry, A, tx, ty, phi0 = params
-        # 防止除零
+        # Prevent division by zero
         Rx = np.maximum(Rx, 1e-12)
         Ry = np.maximum(Ry, 1e-12)
         dx = X - x0
@@ -250,19 +250,19 @@ def fit_parabolic_phase(
 
     def residuals(params):
         pred = model(params)
-        # 加权残差（中心=1，边缘=0），并展平
+        # Weighted residuals (center=1, edge=0), then flatten
         res = (pred - phase) * weights
         # Handle NaNs in phase by setting residual to 0 where weight is 0
         res[np.isnan(res)] = 0
         return res.ravel()
 
-    # --- 参数向量与边界 ---
+    # --- Parameter vector and bounds ---
     p0 = np.array(
         [x0_init, y0_init, Rx_init, Ry_init, A_init, tx_init, ty_init, phi0_init],
         dtype=np.float64,
     )
 
-    # 边界：x0,y0 在像场大小内；Rx,Ry 在 [field_size*0.2, max_R]；A 在相位幅值附近；tx,ty 宽松；phi0 在 ±(phase_range)
+    # Bounds: x0,y0 within field size; Rx,Ry in [field_size*0.2, max_R]; A near phase amplitude; tx,ty relaxed; phi0 in ±(phase_range)
     phase_range = float(np.nanmax(phase) - np.nanmin(phase) + 1e-12)
     lower = np.array(
         [
@@ -291,10 +291,10 @@ def fit_parabolic_phase(
         dtype=np.float64,
     )
 
-    # 把初值 clip 到边界里，避免"初值越界"异常
+    # Clip initial values to bounds to avoid "initial value out of bounds" exception
     p0 = np.clip(p0, lower + 1e-12, upper - 1e-12)
 
-    # --- robust 最小二乘 ---
+    # --- Robust least squares ---
     res = least_squares(
         residuals,
         p0,
@@ -311,7 +311,7 @@ def fit_parabolic_phase(
         "rms": float(np.sqrt(res.cost / np.count_nonzero(weights))),
     }
 
-    # 结果与回算
+    # Results and reconstruction
     x0, y0, Rx, Ry, A, tx, ty, phi0 = res.x
     fitted = model(res.x)
     fitted_phase = fitted.reshape(phase.shape)
@@ -697,7 +697,7 @@ def perform_wavefront_fitting(
     #     fixed_center = (x0_initial, y0_initial)
     # else:
     #     fixed_center = None
-    # 默认不使用中心点
+    # Default: do not use center point
     fixed_center = None
     # 3. Fit with fixed or free center
     fit_params, fitted_phase, diagnostics = fit_parabolic_phase_fast(

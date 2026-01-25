@@ -5,16 +5,16 @@ from scipy import constants
 
 def calculate_magnification_correction(params):
     """
-    计算球面波DPC的理论比例因子
+    Calculate the theoretical scale factor for spherical wave DPC.
 
     Args:
-        params: 包含光学系统参数的字典
+        params: Dictionary containing optical system parameters
 
     Returns:
-        理论比例因子
+        Theoretical scale factor
     """
-    d = params["det2sample"]  # 探测器到样品距离
-    R = params["source_dist"]  # 光源到样品距离
+    d = params["det2sample"]  # Detector-to-sample distance
+    R = params["source_dist"]  # Source-to-sample distance
 
     scale_factor = R / (R + d)
     return scale_factor
@@ -98,29 +98,29 @@ def image_correction(
     image, flat=None, dark=None, epsilon=1e-8, normalize=True, **kwargs
 ):
     """
-    通用平场校正函数
+    General flat-field correction function.
 
-    参数
-    ----
+    Parameters
+    ----------
     image : ndarray
-        自成像/样品图像
+        Self-image / sample image
     flat : ndarray or None
-        平场图像 (flat / open-beam)，可选
+        Flat-field image (flat / open-beam), optional
     dark : ndarray or None
-        暗场图像 (dark)，可选
+        Dark-field image (dark), optional
     epsilon : float
-        避免除零的小常数
+        Small constant to avoid division by zero
     normalize : bool
-        是否将结果归一化到均值 ~1
+        Whether to normalize the result to mean ~1
 
-    返回
-    ----
+    Returns
+    -------
     corrected_image : ndarray
-        校正后的图像
+        Corrected image
 
-    兼容性
-    ----
-    仍然兼容旧参数名: I_self, I_flat, I_dark, eps
+    Compatibility
+    -------------
+    Still compatible with old parameter names: I_self, I_flat, I_dark, eps
     """
     # Use float32 for faster computation (sufficient precision for image processing)
     image = np.asarray(image, dtype=np.float32)

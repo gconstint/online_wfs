@@ -22,55 +22,55 @@ def calibrate_focus_position(
     verbose: bool = True,
 ) -> Dict[str, Any]:
     """
-    根据 fitted_phase 的 Zernike 系数标定焦点位置。
+    Calibrate focus position based on Zernike coefficients of fitted_phase.
 
-    对 fitted_phase 进行前 6 项 Zernike 拟合 (j=0 到 j=5)，获取:
-    - C3 (Astigmatism 0°): 斜向像散
-    - C4 (Defocus): 离焦
-    - C5 (Astigmatism 45°): 正交像散
+    Performs Zernike fitting of first 6 terms (j=0 to j=5) on fitted_phase to obtain:
+    - C3 (Astigmatism 0°): Oblique astigmatism
+    - C4 (Defocus): Defocus
+    - C5 (Astigmatism 45°): Orthogonal astigmatism
 
-    基于这些系数计算标准焦点位置（基于 C4）和像散焦点位置（基于 C3/C4/C5）。
+    Calculates standard focus position (based on C4) and astigmatic focus positions (based on C3/C4/C5).
 
     Parameters
     ----------
     fitted_phase : np.ndarray
-        抛物面拟合后的相位 [rad]
+        Phase after paraboloid fitting [rad]
     roi_result : dict
-        ROI 选择结果，包含 crop_info, aperture_center, aperture_radius_fraction
+        ROI selection result containing crop_info, aperture_center, aperture_radius_fraction
     params : dict
-        系统参数，包含 wavelength, total_dist
+        System parameters containing wavelength, total_dist
     virtual_pixel_size : list
-        虚拟像素尺寸 (py, px) [m]
+        Virtual pixel size (py, px) [m]
     verbose : bool
-        是否打印详细结果
+        Whether to print detailed results
 
     Returns
     -------
     dict
-        标定结果，包含:
-        - R, Delta_z, C4, C4_opd (标准焦点标定)
-        - astigmatic_focus: 像散焦点结果 (R_x, R_y, Delta_z_x, Delta_z_y 等)
+        Calibration result containing:
+        - R, Delta_z, C4, C4_opd (standard focus calibration)
+        - astigmatic_focus: astigmatic focus results (R_x, R_y, Delta_z_x, Delta_z_y, etc.)
     """
-    # 从 roi_result 中获取裁剪边界
+    # Get crop bounds from roi_result
     crop_info = roi_result["crop_info"]
     fitted_phase_cropped = fitted_phase[
         crop_info["row_start"] : crop_info["row_end"],
         crop_info["col_start"] : crop_info["col_end"],
     ]
 
-    # 对 fitted_phase 进行 Zernike 分析（需要 j=0 到 j=5，共 6 项）
+    # Perform Zernike analysis on fitted_phase (need j=0 to j=5, 6 terms total)
     fitted_zernike_coeffs, _, _, _, _, _ = perform_zernike_analysis(
         phase=fitted_phase_cropped,
         pixel_size=virtual_pixel_size,
         wavelength=params["wavelength"],
-        num_terms=6,  # j=0 到 j=5，获取 C3, C4, C5
+        num_terms=6,  # j=0 to j=5, to get C3, C4, C5
         aperture_center=roi_result["aperture_center"],
         aperture_radius_fraction=roi_result["aperture_radius_fraction"],
         use_radial_tukey_weight=True,
         verbose=verbose,
     )
 
-    # 获取 Zernike 系数 (只需要 C4 和 C5)
+    # Get Zernike coefficients (only need C4 and C5)
     C4 = fitted_zernike_coeffs[4]  # Defocus (OSA j=4)
     C5 = fitted_zernike_coeffs[5]  # Astigmatism X-Y (OSA j=5)
 
@@ -79,10 +79,10 @@ def calibrate_focus_position(
         print(f"  C₄ (Defocus):     {C4:.6f} rad ({C4 / (2 * np.pi):.6f} λ)")
         print(f"  C₅ (Astig X-Y):   {C5:.6f} rad ({C5 / (2 * np.pi):.6f} λ)")
 
-    # R0: 理想探测器到焦点的距离
+    # R0: Ideal detector-to-focus distance
     R0 = params["total_dist"]
 
-    # r_max: 光束半径，使用 ROI 选择的物理半径
+    # r_max: Beam radius, using the physical radius from ROI selection
     cropped_size = min(roi_result["phase_error_cropped"].shape)
     r_max = (
         (cropped_size / 2)
@@ -90,7 +90,7 @@ def calibrate_focus_position(
         * np.mean(virtual_pixel_size)
     )
 
-    # 1. 标准焦点位置标定（仅基于 C4）
+    # 1. Standard focus position calibration (based on C4 only)
     focus_result = calculate_focus_distance(
         C4=C4,
         R0=R0,
@@ -99,7 +99,7 @@ def calibrate_focus_position(
         verbose=verbose,
     )
 
-    # 2. 像散焦点位置标定（基于 C4/C5）
+    # 2. Astigmatic focus position calibration (based on C4/C5)
     astigmatic_focus_result = calculate_astigmatic_focus(
         C4=C4,
         C5=C5,
@@ -109,7 +109,7 @@ def calibrate_focus_position(
         verbose=verbose,
     )
 
-    # 合并结果
+    # Merge results
     result = focus_result.copy()
     result["astigmatic_focus"] = astigmatic_focus_result
     result["C5"] = C5
@@ -124,58 +124,58 @@ def calculate_focus_from_dpc(
     verbose: bool = True,
 ) -> Dict[str, Any]:
     """
-    根据 DPC 抛物面拟合参数计算焦点位置（曲率叠加法）。
+    Calculate focus position from DPC paraboloid fitting parameters (curvature superposition method).
 
-    物理原理
-    --------
-    将距离转换成曲率 (K = 1/R) 来进行加减运算，因为曲率是可以线性叠加的：
+    Physical Principle
+    ------------------
+    Convert distance to curvature (K = 1/R) for addition/subtraction, since curvatures are linearly additive:
         K_total = K_ideal + K_residual
 
-    展开为距离公式：
+    Expanded as distance formula:
         1/R_real = 1/R_0 + λ*a/π
 
-    其中：
-        - R_real: 真实焦点位置
-        - R_0: 理想参考距离
-        - λ: X 射线波长
-        - a: 拟合得到的二次项系数 (单位 rad/m²)
+    Where:
+        - R_real: Actual focus position
+        - R_0: Ideal reference distance
+        - λ: X-ray wavelength
+        - a: Fitted quadratic coefficient (unit: rad/m²)
 
-    二次项系数 a 从拟合参数提取：
+    Quadratic coefficient a is extracted from fit parameters:
         a_x = A / Rx²
         a_y = A / Ry²
 
     Parameters
     ----------
     fit_params : list
-        DPC 抛物面拟合参数 [x0, y0, Rx, Ry, A]
-        - x0, y0: 抛物面中心位置 [m]
-        - Rx, Ry: X/Y 方向虚拟半径 [m]
-        - A: 振幅 [rad]
+        DPC paraboloid fit parameters [x0, y0, Rx, Ry, A]
+        - x0, y0: Paraboloid center position [m]
+        - Rx, Ry: X/Y direction virtual radius [m]
+        - A: Amplitude [rad]
     wavelength : float
-        X 射线波长 [m]
+        X-ray wavelength [m]
     reference_distance : float
-        理想参考距离 R_0 [m]，默认 0.465 m
+        Ideal reference distance R_0 [m], default 0.465 m
     verbose : bool
-        是否打印详细结果
+        Whether to print detailed results
 
     Returns
     -------
     dict
-        包含标定结果的字典：
-        - R_x : float - X 方向焦点距离 [m]
-        - R_y : float - Y 方向焦点距离 [m]
-        - R_avg : float - 平均焦点距离 (R_x + R_y) / 2 [m]
-        - Delta_x : float - X 方向焦点偏移量 R_x - R_0 [m]
-        - Delta_y : float - Y 方向焦点偏移量 R_y - R_0 [m]
-        - Delta_avg : float - 平均焦点偏移量 [m]
-        - a_x : float - X 方向二次项系数 [rad/m²]
-        - a_y : float - Y 方向二次项系数 [rad/m²]
-        - R_0 : float - 参考距离 [m]
+        Dictionary containing calibration results:
+        - R_x : float - X-direction focus distance [m]
+        - R_y : float - Y-direction focus distance [m]
+        - R_avg : float - Average focus distance (R_x + R_y) / 2 [m]
+        - Delta_x : float - X-direction focus offset R_x - R_0 [m]
+        - Delta_y : float - Y-direction focus offset R_y - R_0 [m]
+        - Delta_avg : float - Average focus offset [m]
+        - a_x : float - X-direction quadratic coefficient [rad/m²]
+        - a_y : float - Y-direction quadratic coefficient [rad/m²]
+        - R_0 : float - Reference distance [m]
     """
     x0, y0, Rx, Ry, A = fit_params
     R_0 = reference_distance
 
-    # 检查有效性
+    # Check validity
     if A == 0 or Rx <= 0 or Ry <= 0:
         if verbose:
             print(
@@ -193,55 +193,57 @@ def calculate_focus_from_dpc(
             "R_0": R_0,
         }
 
-    # 从拟合参数提取二次项系数
+    # Extract quadratic coefficient from fit parameters
     a_x = A / (Rx**2)  # rad/m²
     a_y = A / (Ry**2)  # rad/m²
 
-    # 残余波前的曲率贡献
+    # Residual wavefront curvature contribution
     K_residual_x = wavelength * a_x / np.pi  # 1/m
     K_residual_y = wavelength * a_y / np.pi  # 1/m
 
-    # 总曲率 = 理想曲率 + 残余曲率
+    # Total curvature = ideal curvature + residual curvature
     K_ideal = 1.0 / R_0  # 1/m
     K_total_x = K_ideal + K_residual_x
     K_total_y = K_ideal + K_residual_y
 
-    # 转换回距离: R_real = 1 / K_total
+    # Convert back to distance: R_real = 1 / K_total
     R_x = 1.0 / K_total_x if abs(K_total_x) > 1e-14 else np.inf
     R_y = 1.0 / K_total_y if abs(K_total_y) > 1e-14 else np.inf
 
-    # 焦点偏移量
+    # Focus offset
     Delta_x = R_x - R_0
     Delta_y = R_y - R_0
 
-    # 平均焦点位置和偏移量
+    # Average focus position and offset
     R_avg = (R_x + R_y) / 2.0
     Delta_avg = (Delta_x + Delta_y) / 2.0
 
     if verbose:
         print("\n" + "=" * 60)
-        print("DPC 拟合焦点标定结果 (曲率叠加法)".center(60))
+        print("DPC Fit Focus Calibration Results (Curvature Superposition)".center(60))
         print("=" * 60)
-        print("计算公式: 1/R_real = 1/R_0 + λ*a/π")
+        print("Formula: 1/R_real = 1/R_0 + λ*a/π")
         print("-" * 60)
-        print("输入参数:")
-        print(f"  - 参考距离 R_0:       {R_0:.6f} m ({R_0 * 1e3:.3f} mm)")
-        print(f"  - 波长 λ:             {wavelength * 1e9:.4f} nm")
-        print(f"  - 拟合振幅 A:         {A:.4f} rad")
-        print(f"  - 虚拟半径 Rx:        {Rx * 1e6:.2f} μm")
-        print(f"  - 虚拟半径 Ry:        {Ry * 1e6:.2f} μm")
+        print("Input parameters:")
+        print(f"  - Reference distance R_0:  {R_0:.6f} m ({R_0 * 1e3:.3f} mm)")
+        print(f"  - Wavelength λ:            {wavelength * 1e9:.4f} nm")
+        print(f"  - Fit amplitude A:         {A:.4f} rad")
+        print(f"  - Virtual radius Rx:       {Rx * 1e6:.2f} μm")
+        print(f"  - Virtual radius Ry:       {Ry * 1e6:.2f} μm")
         print("-" * 60)
-        print("二次项系数 a = A/R²:")
+        print("Quadratic coefficient a = A/R²:")
         print(f"  - a_x = {a_x:.4e} rad/m²")
         print(f"  - a_y = {a_y:.4e} rad/m²")
         print("-" * 60)
-        print("标定结果:")
-        print(f"  - X 方向焦点距离 R_x: {R_x:.6f} m ({R_x * 1e3:.3f} mm)")
-        print(f"  - Y 方向焦点距离 R_y: {R_y:.6f} m ({R_y * 1e3:.3f} mm)")
-        print(f"  - 平均焦点距离 R_avg: {R_avg:.6f} m ({R_avg * 1e3:.3f} mm)")
-        print(f"  - X 方向偏移量 ΔR_x:  {Delta_x * 1e3:.4f} mm")
-        print(f"  - Y 方向偏移量 ΔR_y:  {Delta_y * 1e3:.4f} mm")
-        print(f"  - 平均偏移量 ΔR_avg:  {Delta_avg * 1e3:.4f} mm")
+        print("Calibration results:")
+        print(f"  - X-direction focus distance R_x: {R_x:.6f} m ({R_x * 1e3:.3f} mm)")
+        print(f"  - Y-direction focus distance R_y: {R_y:.6f} m ({R_y * 1e3:.3f} mm)")
+        print(
+            f"  - Average focus distance R_avg:   {R_avg:.6f} m ({R_avg * 1e3:.3f} mm)"
+        )
+        print(f"  - X-direction offset ΔR_x:        {Delta_x * 1e3:.4f} mm")
+        print(f"  - Y-direction offset ΔR_y:        {Delta_y * 1e3:.4f} mm")
+        print(f"  - Average offset ΔR_avg:          {Delta_avg * 1e3:.4f} mm")
         print("=" * 60 + "\n")
 
     return {
@@ -265,91 +267,92 @@ def calculate_focus_distance(
     verbose: bool = True,
 ) -> Dict[str, Any]:
     """
-    根据 Zernike 离焦系数 C4 计算探测器到焦点的实际距离。
+    Calculate actual detector-to-focus distance based on Zernike defocus coefficient C4.
 
-    物理原理
-    --------
-    理想波前与实际波前的曲率差可以近似表示为（OPD 单位，米）：
+    Physical Principle
+    ------------------
+    The curvature difference between ideal and actual wavefront can be approximated as (OPD units, meters):
         W_err(r) ≈ (r²/2R) - (r²/2R₀) = (r²/2) × (1/R - 1/R₀)
 
-    相位与 OPD 的关系：φ = (2π/λ) × W
+    Relationship between phase and OPD: φ = (2π/λ) × W
 
-    Zernike 离焦系数与物理矢高的关系：
+    Relationship between Zernike defocus coefficient and physical sag:
         Sag = √3 × C₄_opd
 
-    注意：虽然 Z₄ = √3(2ρ² - 1) 的 ρ² 系数为 2√3，但这里的 "2" 是为了
-    Zernike 多项式的正交归一化，不代表物理曲率的两倍。物理矢高应使用 √3 × C₄。
+    Note: Although Z₄ = √3(2ρ² - 1) has ρ² coefficient of 2√3, the "2" here is for
+    orthonormalization of Zernike polynomials, not representing twice the physical curvature.
+    Physical sag should use √3 × C₄.
 
-    匹配物理公式：
+    Matching the physical formula:
         √3 × C₄_opd = r_max² / (2R) - r_max² / (2R₀) = (r_max²/2) × (1/R - 1/R₀)
 
-    求解得：
+    Solving:
         R = (1/R₀ + 2√3 × C₄_opd / r_max²)⁻¹
 
     Parameters
     ----------
     C4 : float
-        Zernike 离焦系数 (OSA/ANSI 索引 j=4)，单位：rad。
+        Zernike defocus coefficient (OSA/ANSI index j=4), unit: rad.
     R0 : float
-        设定的理想探测器到焦点的距离 [m]。
+        Set ideal detector-to-focus distance [m].
     r_max : float
-        光束在探测器上的半径（瞳径）[m]。
+        Beam radius at detector (pupil diameter) [m].
     wavelength : float
-        波长 [m]。
+        Wavelength [m].
     verbose : bool, optional
-        是否打印详细计算结果。默认为 True。
+        Whether to print detailed calculation results. Default is True.
 
     Returns
     -------
     dict
-        包含标定结果的字典：
-        - R : float - 实际探测器到焦点的距离 [m]
-        - Delta_z : float - 焦点偏移量 Δz = R - R₀ [m]
-        - Delta_z_approx : float - 线性近似的偏移量 [m]
-        - C4 : float - 输入的 Zernike 离焦系数 [rad]
-        - C4_opd : float - C4 转换为 OPD [m]
+        Dictionary containing calibration results:
+        - R : float - Actual detector-to-focus distance [m]
+        - Delta_z : float - Focus offset Δz = R - R₀ [m]
+        - Delta_z_approx : float - Linear approximation offset [m]
+        - C4 : float - Input Zernike defocus coefficient [rad]
+        - C4_opd : float - C4 converted to OPD [m]
 
     Notes
     -----
-    符号约定（焦点位置校准）：
-    - 如果 Δz < 0 (R < R₀): 焦点太靠近探测器 → 焦点需要远离探测器
-    - 如果 Δz > 0 (R > R₀): 焦点太远离探测器 → 焦点需要向探测器方向移动
+    Sign convention (focus position calibration):
+    - If Δz < 0 (R < R₀): Focus is too close to detector → focus needs to move away from detector
+    - If Δz > 0 (R > R₀): Focus is too far from detector → focus needs to move toward detector
     """
     sqrt3 = np.sqrt(3)
 
-    # 将 C4 从弧度转换为 OPD（米）
+    # Convert C4 from radians to OPD (meters)
     C4_opd = C4 * wavelength / (2 * np.pi)
 
-    # 计算完整公式：R = (1/R₀ + 2√3 × C₄_opd / r_max²)⁻¹
+    # Calculate full formula: R = (1/R₀ + 2√3 × C₄_opd / r_max²)⁻¹
     curvature_correction = 2 * sqrt3 * C4_opd / (r_max**2)
 
-    # 处理极端情况避免除零
+    # Handle extreme case to avoid division by zero
     inv_R = 1.0 / R0 + curvature_correction
     if abs(inv_R) < 1e-12:
         R = np.inf if inv_R >= 0 else -np.inf
     else:
         R = 1.0 / inv_R
 
-    # 精确位置误差
+    # Exact position error
     Delta_z = R - R0
 
-    # 线性近似：Δz ≈ -2√3 × R₀² × C₄_opd / r_max²
+    # Linear approximation: Δz ≈ -2√3 × R₀² × C₄_opd / r_max²
     Delta_z_approx = -2 * sqrt3 * (R0**2) * C4_opd / (r_max**2)
 
     if verbose:
         print("\n" + "=" * 60)
-        print("焦点位置标定结果".center(60))
+        print("Focus Position Calibration Results".center(60))
         print("=" * 60)
-        print("输入参数:")
-        print(f"  - Zernike C₄ (相位): {C4:.6f} rad ({C4 / (2 * np.pi):.6f} λ)")
-        print(f"  - Zernike C₄ (OPD):  {C4_opd * 1e9:.6f} nm")
-        print(f"  - 理想距离 R₀:       {R0:.6f} m ({R0 * 1e3:.3f} mm)")
-        print(f"  - 光束半径 r_max:    {r_max * 1e3:.3f} mm")
-        print(f"  - 波长 λ:            {wavelength * 1e9:.4f} nm")
+        print("Input parameters:")
+        print(f"  - Zernike C₄ (phase):      {C4:.6f} rad ({C4 / (2 * np.pi):.6f} λ)")
+        print(f"  - Zernike C₄ (OPD):        {C4_opd * 1e9:.6f} nm")
+        print(f"  - Ideal distance R₀:       {R0:.6f} m ({R0 * 1e3:.3f} mm)")
+        print(f"  - Beam radius r_max:       {r_max * 1e3:.3f} mm")
+        print(f"  - Wavelength λ:            {wavelength * 1e9:.4f} nm")
         print("-" * 60)
-        print("标定结果:")
-        print(f"  - 探测器到焦点实际距离 R:  {R:.6f} m ({R * 1e3:.3f} mm)")
-        print(f"  - 焦点偏移量 Δz = R - R₀:  {Delta_z * 1e3:.6f} mm")
+        print("Calibration results:")
+        print(f"  - Actual detector-to-focus distance R: {R:.6f} m ({R * 1e3:.3f} mm)")
+        print(f"  - Focus offset Δz = R - R₀:            {Delta_z * 1e3:.6f} mm")
         print("=" * 60 + "\n")
 
     return {
@@ -370,82 +373,83 @@ def calculate_astigmatic_focus(
     verbose: bool = True,
 ) -> Dict[str, Any]:
     """
-    计算像散情况下的 X/Y 方向焦点位置。
+    Calculate X/Y direction focus positions for astigmatic case.
 
-    当波前存在像散时，X 和 Y 方向的曲率半径不同，导致两个不同的焦点位置。
-    本函数基于 Zernike 系数 C4 (Defocus) 和 C5 (Astigmatism) 计算两个方向的独立焦点位置。
+    When wavefront has astigmatism, X and Y directions have different radii of curvature,
+    leading to two different focus positions. This function calculates independent focus
+    positions for both directions based on Zernike coefficients C4 (Defocus) and C5 (Astigmatism).
 
-    物理原理
-    --------
-    对于 OSA/ANSI 归一化的 Zernike 多项式：
-    - Z₄ (n=2, m=0):  √3 × (2ρ² - 1) → 离焦 (平均曲率)
-    - Z₅ (n=2, m=2):  √6 × ρ² × cos(2θ) ∝ (x² - y²) → 正交像散 (X-Y 曲率差)
+    Physical Principle
+    ------------------
+    For OSA/ANSI normalized Zernike polynomials:
+    - Z₄ (n=2, m=0):  √3 × (2ρ² - 1) → Defocus (average curvature)
+    - Z₅ (n=2, m=2):  √6 × ρ² × cos(2θ) ∝ (x² - y²) → Orthogonal astigmatism (X-Y curvature difference)
 
-    X/Y 方向的曲率半径：
+    X/Y direction radii of curvature:
         1/R_x = 1/R₀ + (2√3 × C₄_opd + 2√6 × C₅_opd) / r_max²
         1/R_y = 1/R₀ + (2√3 × C₄_opd - 2√6 × C₅_opd) / r_max²
 
     Parameters
     ----------
     C4 : float
-        Zernike 离焦系数 (OSA j=4, Defocus) [rad]
+        Zernike defocus coefficient (OSA j=4, Defocus) [rad]
     C5 : float
-        Zernike 正交像散系数 (OSA j=5, Astigmatism X-Y) [rad]
+        Zernike orthogonal astigmatism coefficient (OSA j=5, Astigmatism X-Y) [rad]
     R0 : float
-        设定的理想探测器到焦点的距离 [m]
+        Set ideal detector-to-focus distance [m]
     r_max : float
-        光束在探测器上的半径（瞳径）[m]
+        Beam radius at detector (pupil diameter) [m]
     wavelength : float
-        波长 [m]
+        Wavelength [m]
     verbose : bool
-        是否打印详细结果
+        Whether to print detailed results
 
     Returns
     -------
     dict
-        包含以下键值:
-        - R_x : float - X 方向曲率半径 [m]
-        - R_y : float - Y 方向曲率半径 [m]
-        - Delta_z_x : float - X 方向焦点偏移量 [m]
-        - Delta_z_y : float - Y 方向焦点偏移量 [m]
-        - astigmatism_distance : float - 像散距离 |R_x - R_y| [m]
-        - C4, C5 : float - 输入的 Zernike 系数 [rad]
+        Contains the following keys:
+        - R_x : float - X-direction radius of curvature [m]
+        - R_y : float - Y-direction radius of curvature [m]
+        - Delta_z_x : float - X-direction focus offset [m]
+        - Delta_z_y : float - Y-direction focus offset [m]
+        - astigmatism_distance : float - Astigmatism distance |R_x - R_y| [m]
+        - C4, C5 : float - Input Zernike coefficients [rad]
     """
     sqrt3 = np.sqrt(3)
     sqrt6 = np.sqrt(6)
 
-    # 将 Zernike 系数从弧度转换为 OPD（米）
+    # Convert Zernike coefficients from radians to OPD (meters)
     C4_opd = C4 * wavelength / (2 * np.pi)
     C5_opd = C5 * wavelength / (2 * np.pi)
 
     inv_r_max_sq = 1.0 / (r_max**2)
 
-    # 离焦贡献（两个方向相同）
+    # Defocus contribution (same for both directions)
     defocus_correction = 2 * sqrt3 * C4_opd * inv_r_max_sq
 
-    # 像散贡献（两个方向相反）
-    # C5 (cos 2θ ∝ x² - y²) 分量对应 X-Y 差异
+    # Astigmatism contribution (opposite for both directions)
+    # C5 (cos 2θ ∝ x² - y²) component corresponds to X-Y difference
     astig_correction = 2 * sqrt6 * C5_opd * inv_r_max_sq
 
-    # X 方向曲率
+    # X-direction curvature
     inv_R_x = 1.0 / R0 + defocus_correction + astig_correction
     if abs(inv_R_x) < 1e-12:
         R_x = np.inf if inv_R_x >= 0 else -np.inf
     else:
         R_x = 1.0 / inv_R_x
 
-    # Y 方向曲率
+    # Y-direction curvature
     inv_R_y = 1.0 / R0 + defocus_correction - astig_correction
     if abs(inv_R_y) < 1e-12:
         R_y = np.inf if inv_R_y >= 0 else -np.inf
     else:
         R_y = 1.0 / inv_R_y
 
-    # 焦点偏移量
+    # Focus offset
     Delta_z_x = R_x - R0
     Delta_z_y = R_y - R0
 
-    # 像散距离
+    # Astigmatism distance
     if np.isfinite(R_x) and np.isfinite(R_y):
         astigmatism_distance = abs(R_x - R_y)
     else:
@@ -453,26 +457,28 @@ def calculate_astigmatic_focus(
 
     if verbose:
         print("\n" + "=" * 70)
-        print("像散焦点位置标定结果 (基于 Zernike C4/C5)".center(70))
+        print(
+            "Astigmatic Focus Calibration Results (Based on Zernike C4/C5)".center(70)
+        )
         print("=" * 70)
-        print("输入 Zernike 系数:")
+        print("Input Zernike coefficients:")
         print(f"  - C₄ (Defocus):      {C4:.6f} rad ({C4 / (2 * np.pi):.6f} λ)")
         print(f"  - C₅ (Astig X-Y):    {C5:.6f} rad ({C5 / (2 * np.pi):.6f} λ)")
-        print(f"  - 理想距离 R₀:       {R0:.6f} m ({R0 * 1e3:.3f} mm)")
-        print(f"  - 光束半径 r_max:    {r_max * 1e3:.3f} mm")
+        print(f"  - Ideal distance R₀: {R0:.6f} m ({R0 * 1e3:.3f} mm)")
+        print(f"  - Beam radius r_max: {r_max * 1e3:.3f} mm")
         print("-" * 70)
-        print("X 方向 (水平):")
-        print(f"  - 曲率半径 R_x:      {R_x:.6f} m ({R_x * 1e3:.3f} mm)")
-        print(f"  - 焦点偏移 Δz_x:     {Delta_z_x * 1e3:.6f} mm")
-        print("Y 方向 (垂直):")
-        print(f"  - 曲率半径 R_y:      {R_y:.6f} m ({R_y * 1e3:.3f} mm)")
-        print(f"  - 焦点偏移 Δz_y:     {Delta_z_y * 1e3:.6f} mm")
+        print("X direction (horizontal):")
+        print(f"  - Radius of curvature R_x: {R_x:.6f} m ({R_x * 1e3:.3f} mm)")
+        print(f"  - Focus offset Δz_x:       {Delta_z_x * 1e3:.6f} mm")
+        print("Y direction (vertical):")
+        print(f"  - Radius of curvature R_y: {R_y:.6f} m ({R_y * 1e3:.3f} mm)")
+        print(f"  - Focus offset Δz_y:       {Delta_z_y * 1e3:.6f} mm")
         print("-" * 70)
-        print(f"像散距离 |Rx - Ry|:    {astigmatism_distance * 1e3:.6f} mm")
+        print(f"Astigmatism distance |Rx - Ry|: {astigmatism_distance * 1e3:.6f} mm")
         if astigmatism_distance < 1e-6:
-            print("  → 近似球面波前，无明显像散")
+            print("  → Approximately spherical wavefront, no significant astigmatism")
         else:
-            print("  → ⚠ 存在像散，X/Y 方向焦点位置不同")
+            print("  → ⚠ Astigmatism present, X/Y direction focus positions differ")
         print("=" * 70 + "\n")
 
     return {

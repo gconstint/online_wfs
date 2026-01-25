@@ -56,6 +56,13 @@ def get_exp_params() -> dict:
     params["dark_image_path"] = None
     params["flat_image_path"] = None
 
+    # Pipeline Processing Parameters
+    params["crop_size"] = 2048  # Center crop size (pixels)
+    params["rotation_angle"] = 1.142  # Pre-computed rotation angle (degrees)
+    params["lowpass_cutoff"] = 0.35  # DPC lowpass filter cutoff
+    params["do_rotation"] = False  # Whether to perform rotation correction
+    params["parallel"] = True  # Whether to use parallel execution
+
     return params
 
 
@@ -92,6 +99,13 @@ def get_sim_params() -> dict:
     params["image_path"] = str(DATA_DIR / "sample_sim.tif")
     params["dark_image_path"] = None
     params["flat_image_path"] = None
+
+    # Pipeline Processing Parameters
+    params["crop_size"] = 2048  # Center crop size (pixels)
+    params["rotation_angle"] = None  # Compute from image (simulation may differ)
+    params["lowpass_cutoff"] = 0.35  # DPC lowpass filter cutoff
+    params["do_rotation"] = False  # Whether to perform rotation correction
+    params["parallel"] = True  # Whether to use parallel execution
 
     return params
 

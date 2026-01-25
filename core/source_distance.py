@@ -20,13 +20,13 @@ Where:
 from typing import Dict, Any, Optional
 
 
-# CRL 材料常数 (常用材料的电子密度相关参数)
-# 格式: material -> (Z/A ratio, density [g/cm³])
+# CRL material constants (electron density related parameters for common materials)
+# Format: material -> (Z/A ratio, density [g/cm³])
 CRL_MATERIALS = {
-    "Be": (4 / 9.012, 1.85),  # 铍
-    "Al": (13 / 26.982, 2.70),  # 铝
-    "C": (6 / 12.011, 2.26),  # 碳（金刚石）
-    "Si": (14 / 28.086, 2.33),  # 硅
+    "Be": (4 / 9.012, 1.85),  # Beryllium
+    "Al": (13 / 26.982, 2.70),  # Aluminum
+    "C": (6 / 12.011, 2.26),  # Carbon (diamond)
+    "Si": (14 / 28.086, 2.33),  # Silicon
 }
 
 
@@ -36,35 +36,35 @@ def calculate_delta_from_energy(
     custom_density: Optional[float] = None,
 ) -> float:
     """
-    根据光子能量和材料计算折射率偏差 δ。
+    Calculate refractive index decrement δ based on photon energy and material.
 
-    使用简化公式（适用于远离吸收边的情况）：
+    Uses simplified formula (valid far from absorption edges):
         δ ≈ 2.701e-6 × (ρ [g/cm³]) × (Z/A) × (λ [Å])²
 
     Parameters
     ----------
     energy_eV : float
-        光子能量 [eV]
+        Photon energy [eV]
     material : str, optional
-        CRL 材料，可选 "Be", "Al", "C", "Si"。默认为 "Be"。
+        CRL material, one of "Be", "Al", "C", "Si". Default is "Be".
     custom_density : float, optional
-        自定义密度 [g/cm³]。
+        Custom density [g/cm³].
 
     Returns
     -------
     float
-        折射率偏差 δ（无量纲）
+        Refractive index decrement δ (dimensionless)
     """
     if material not in CRL_MATERIALS:
         raise ValueError(
-            f"未知材料 '{material}'。可选材料: {list(CRL_MATERIALS.keys())}"
+            f"Unknown material '{material}'. Available materials: {list(CRL_MATERIALS.keys())}"
         )
 
     z_over_a, density = CRL_MATERIALS[material]
     if custom_density is not None:
         density = custom_density
 
-    # 计算波长 [Å]
+    # Calculate wavelength [Å]
     hc = 12398.419  # eV·Å
     wavelength_angstrom = hc / energy_eV
 
@@ -83,46 +83,50 @@ def calculate_crl_focal_length(
     verbose: bool = True,
 ) -> float:
     """
-    计算 CRL 焦距: f = R / (2 × N × δ)
+    Calculate CRL focal length: f = R / (2 × N × δ)
 
     Parameters
     ----------
     R : float
-        单个透镜的曲率半径 [m]
+        Radius of curvature of a single lens [m]
     N : int
-        透镜数量
+        Number of lenses
     delta : float, optional
-        折射率偏差 δ。如果未提供，根据 energy_eV 和 material 计算。
+        Refractive index decrement δ. If not provided, calculated from energy_eV and material.
     energy_eV : float, optional
-        光子能量 [eV]。当 delta 未提供时必需。
+        Photon energy [eV]. Required when delta is not provided.
     material : str, optional
-        CRL 材料。默认为 "Be"。
+        CRL material. Default is "Be".
     verbose : bool, optional
-        是否打印详细信息。
+        Whether to print detailed information.
 
     Returns
     -------
     float
-        CRL 焦距 [m]
+        CRL focal length [m]
     """
     if delta is None:
         if energy_eV is None:
-            raise ValueError("必须提供 delta 或 energy_eV 来计算焦距")
+            raise ValueError(
+                "Must provide either delta or energy_eV to calculate focal length"
+            )
         delta = calculate_delta_from_energy(energy_eV, material)
 
     f = R / (2 * N * delta)
 
     if verbose:
         print("\n" + "-" * 50)
-        print("CRL 焦距计算")
+        print("CRL Focal Length Calculation")
         print("-" * 50)
-        print(f"  曲率半径 R:     {R * 1e6:.1f} μm")
-        print(f"  透镜数量 N:     {N}")
-        print(f"  折射率偏差 δ:   {delta:.3e}")
+        print(f"  Radius of curvature R:     {R * 1e6:.1f} μm")
+        print(f"  Number of lenses N:        {N}")
+        print(f"  Refractive index δ:        {delta:.3e}")
         if energy_eV is not None:
-            print(f"  光子能量:       {energy_eV:.0f} eV ({energy_eV / 1000:.2f} keV)")
-            print(f"  材料:           {material}")
-        print(f"  计算焦距 f:     {f * 1e3:.3f} mm ({f:.6f} m)")
+            print(
+                f"  Photon energy:             {energy_eV:.0f} eV ({energy_eV / 1000:.2f} keV)"
+            )
+            print(f"  Material:                  {material}")
+        print(f"  Calculated focal length f: {f * 1e3:.3f} mm ({f:.6f} m)")
         print("-" * 50 + "\n")
 
     return f
@@ -137,70 +141,76 @@ def calculate_source_distance(
     verbose: bool = True,
 ) -> Dict[str, Any]:
     """
-    根据 SGI 测得的实际焦点位置，利用高斯成像公式反推 Undulator 源距离。
+    Calculate Undulator source distance using Gaussian imaging formula from SGI-measured focus position.
 
-    光路布局: Undulator → CRL → 焦点 → Grating → 探测器
+    Optical layout: Undulator → CRL → Focus → Grating → Detector
 
-    计算步骤：
-    1. z_focus = z_det - R_measured（焦点在探测器上游）
+    Calculation steps:
+    1. z_focus = z_det - R_measured (focus is upstream of detector)
     2. L_focus = z_focus - z_CRL
     3. L_source = f × L_focus / (L_focus - f)
 
     Parameters
     ----------
     f : float
-        CRL 焦距 [m]
+        CRL focal length [m]
     z_CRL : float
-        CRL 位置 [m]
+        CRL position [m]
     z_focus : float, optional
-        焦点位置 [m]。如果未提供，通过 z_det 和 R_measured 计算。
+        Focus position [m]. If not provided, calculated from z_det and R_measured.
     z_det : float, optional
-        探测器位置 [m]
+        Detector position [m]
     R_measured : float, optional
-        SGI 测得的探测器到焦点距离 [m]
+        SGI-measured detector-to-focus distance [m]
 
     Returns
     -------
     dict
-        包含 L_source, L_focus, z_focus, z_source, f
+        Contains L_source, L_focus, z_focus, z_source, f
     """
-    # Step 1: 计算焦点位置
+    # Step 1: Calculate focus position
     if z_focus is not None:
         pass
     elif z_det is not None and R_measured is not None:
         z_focus = z_det - R_measured
     else:
-        raise ValueError("必须提供 z_focus，或同时提供 z_det 和 R_measured")
+        raise ValueError("Must provide z_focus, or both z_det and R_measured")
 
-    # Step 2: 计算像距
+    # Step 2: Calculate image distance
     L_focus = z_focus - z_CRL
 
     if L_focus <= f:
-        raise ValueError(f"物理错误：L_focus ({L_focus:.6f} m) <= f ({f:.6f} m)。")
+        raise ValueError(f"Physical error: L_focus ({L_focus:.6f} m) <= f ({f:.6f} m).")
 
-    # Step 3: 反推源距离
+    # Step 3: Calculate source distance
     L_source = (f * L_focus) / (L_focus - f)
     z_source = z_CRL - L_source
 
     if verbose:
         print("\n" + "=" * 70)
-        print("Undulator 源距离计算结果 (高斯成像公式)".center(70))
+        print(
+            "Undulator Source Distance Calculation (Gaussian Imaging Formula)".center(
+                70
+            )
+        )
         print("=" * 70)
-        print("输入参数:")
-        print(f"  - CRL 焦距 f:          {f * 1e3:.3f} mm ({f:.6f} m)")
-        print(f"  - CRL 位置 z_CRL:      {z_CRL:.6f} m")
-        print(f"  - 焦点位置 z_focus:    {z_focus:.6f} m")
+        print("Input parameters:")
+        print(f"  - CRL focal length f:      {f * 1e3:.3f} mm ({f:.6f} m)")
+        print(f"  - CRL position z_CRL:      {z_CRL:.6f} m")
+        print(f"  - Focus position z_focus:  {z_focus:.6f} m")
         if z_det is not None and R_measured is not None:
-            print(f"    (由 z_det={z_det:.3f}m, R_measured={R_measured:.6f}m 计算)")
+            print(
+                f"    (calculated from z_det={z_det:.3f}m, R_measured={R_measured:.6f}m)"
+            )
         print("-" * 70)
-        print("计算结果:")
-        print("  - 像距 L_focus = z_focus - z_CRL:")
+        print("Calculation results:")
+        print("  - Image distance L_focus = z_focus - z_CRL:")
         print(f"      {L_focus * 1e3:.6f} mm ({L_focus:.6f} m)")
-        print("  - L_focus - f (应为正且很小):")
+        print("  - L_focus - f (should be positive and small):")
         print(f"      {(L_focus - f) * 1e6:.3f} μm ({(L_focus - f) * 1e3:.6f} mm)")
-        print("  - 物距 L_source (Undulator 到 CRL):")
+        print("  - Object distance L_source (Undulator to CRL):")
         print(f"      {L_source:.3f} m")
-        print("  - 光源绝对位置 z_source = z_CRL - L_source:")
+        print("  - Source absolute position z_source = z_CRL - L_source:")
         print(f"      {z_source:.6f} m")
         print("=" * 70 + "\n")
 
@@ -219,52 +229,54 @@ def calculate_undulator_source_distance(
     verbose: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """
-    高层封装函数：从 calibration_result 和 params 中提取参数，计算 Undulator 源距离。
+    High-level wrapper function: Extract parameters from calibration_result and params to calculate Undulator source distance.
 
-    光路布局: Undulator → CRL → 焦点 → Grating → 探测器
+    Optical layout: Undulator → CRL → Focus → Grating → Detector
 
-    需要的 params 参数：
-    - 必需: crl_position
-    - 焦距: crl_focal_length 或 (crl_radius + crl_lens_count)
-    - 可选: detector_position, crl_material, wavelength
+    Required params parameters:
+    - Required: crl_position
+    - Focal length: crl_focal_length or (crl_radius + crl_lens_count)
+    - Optional: detector_position, crl_material, wavelength
 
     Parameters
     ----------
     calibration_result : dict
-        来自 calibrate_focus_position 的结果，包含 "R"（探测器到焦点距离）
+        Result from calibrate_focus_position, containing "R" (detector-to-focus distance)
     params : dict
-        系统参数
+        System parameters
     verbose : bool
-        是否打印详细信息
+        Whether to print detailed information
 
     Returns
     -------
     dict or None
-        包含源距离计算结果的字典，如果缺少必要参数则返回 None
+        Dictionary containing source distance calculation results, or None if required parameters are missing
     """
-    # 检查必要参数
+    # Check required parameters
     has_crl_position = "crl_position" in params
     has_focal_length = "crl_focal_length" in params
     can_calc_focal_length = "crl_radius" in params and "crl_lens_count" in params
 
     if not has_crl_position:
         if verbose:
-            print("信息: 未提供 crl_position，跳过源距离计算")
+            print(
+                "Info: crl_position not provided, skipping source distance calculation"
+            )
         return None
 
     if not (has_focal_length or can_calc_focal_length):
         if verbose:
             print(
-                "信息: 未提供 crl_focal_length 或 (crl_radius + crl_lens_count)，跳过源距离计算"
+                "Info: crl_focal_length or (crl_radius + crl_lens_count) not provided, skipping source distance calculation"
             )
         return None
 
-    # 计算或获取焦距
+    # Calculate or get focal length
     if has_focal_length:
         crl_focal_length = params["crl_focal_length"]
     else:
         crl_material = params.get("crl_material", "Be")
-        # 从波长反推能量
+        # Calculate energy from wavelength
         hc = 12398.419e-10  # eV·m
         energy_eV = hc / params["wavelength"]
 
@@ -276,18 +288,20 @@ def calculate_undulator_source_distance(
             verbose=verbose,
         )
 
-    # 获取探测器位置
+    # Get detector position
     if "detector_position" in params:
         z_det = params["detector_position"]
     else:
         if verbose:
-            print("警告: 未提供 detector_position，使用 crl_position + total_dist 估算")
+            print(
+                "Warning: detector_position not provided, estimating using crl_position + total_dist"
+            )
         z_det = params["crl_position"] + params["total_dist"]
 
-    # SGI 测得的探测器到焦点距离
+    # SGI-measured detector-to-focus distance
     R_measured = calibration_result["R"]
 
-    # 计算源距离
+    # Calculate source distance
     result = calculate_source_distance(
         f=crl_focal_length,
         z_CRL=params["crl_position"],
@@ -296,7 +310,7 @@ def calculate_undulator_source_distance(
         verbose=verbose,
     )
 
-    # 添加焦距到结果
+    # Add focal length to result
     result["crl_focal_length"] = crl_focal_length
 
     return result

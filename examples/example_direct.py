@@ -21,9 +21,17 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 
 from pipeline import task
+from typing import Optional
+import numpy as np
 
 
-def run_pipeline(params: dict, verbose: bool = True) -> tuple:
+def run_pipeline(
+    params: dict,
+    verbose: bool = True,
+    img: Optional[np.ndarray] = None,
+    dark: Optional[np.ndarray] = None,
+    flat: Optional[np.ndarray] = None,
+) -> tuple:
     """
     Run the XGI pipeline and collect results from all checkpoints.
 
@@ -33,6 +41,12 @@ def run_pipeline(params: dict, verbose: bool = True) -> tuple:
         Configuration parameters
     verbose : bool
         Whether to print pipeline output
+    img : np.ndarray, optional
+        Raw image data. If provided, skips file loading.
+    dark : np.ndarray, optional
+        Dark field image.
+    flat : np.ndarray, optional
+        Flat field image.
 
     Returns
     -------
@@ -43,7 +57,26 @@ def run_pipeline(params: dict, verbose: bool = True) -> tuple:
     aberration_data = None
     focus_data = None
 
-    for checkpoint_name, data in task(params, verbose=verbose, show_plots=False):
+    # Extract pipeline processing parameters from params (with defaults)
+    crop_size = params.get("crop_size", 2048)
+    rotation_angle = params.get("rotation_angle", None)
+    lowpass_cutoff = params.get("lowpass_cutoff", 0.35)
+    do_rotation = params.get("do_rotation", False)
+    parallel = params.get("parallel", True)
+
+    for checkpoint_name, data in task(
+        params,
+        verbose=verbose,
+        show_plots=False,
+        do_rotation=do_rotation,
+        parallel=parallel,
+        img=img,
+        dark=dark,
+        flat=flat,
+        crop_size=crop_size,
+        rotation_angle=rotation_angle,
+        lowpass_cutoff=lowpass_cutoff,
+    ):
         if checkpoint_name == "checkpoint_wavefront":
             wavefront_data = data
         elif checkpoint_name == "checkpoint_aberration":
@@ -255,7 +288,14 @@ def save_all_plots(wavefront_data, aberration_data, focus_data, output_dir: Path
     save_zernike_bar(aberration_data, output_dir)
 
 
-def analyze(params: dict, output_dir: Path = None, verbose: bool = False):
+def analyze(
+    params: dict,
+    output_dir: Path = None,
+    verbose: bool = False,
+    img: Optional[np.ndarray] = None,
+    dark: Optional[np.ndarray] = None,
+    flat: Optional[np.ndarray] = None,
+):
     """
     Complete analysis workflow: run pipeline, print results, save plots.
 
@@ -267,6 +307,12 @@ def analyze(params: dict, output_dir: Path = None, verbose: bool = False):
         Directory for saving plots (default: output/)
     verbose : bool
         Whether to print output
+    img : np.ndarray, optional
+        Raw image data. If provided, skips file loading.
+    dark : np.ndarray, optional
+        Dark field image.
+    flat : np.ndarray, optional
+        Flat field image.
     """
     if output_dir is None:
         output_dir = Path(__file__).parent.parent / "output"
@@ -274,12 +320,17 @@ def analyze(params: dict, output_dir: Path = None, verbose: bool = False):
     print("=" * 60)
     print("XGI Wavefront Sensor Analysis")
     print("=" * 60)
-    print(f"Image: {params['image_path']}")
+    if img is not None:
+        print(f"Image: Direct input ({img.shape})")
+    else:
+        print(f"Image: {params['image_path']}")
     print(f"Output: {output_dir}")
     print("=" * 60)
 
     # Run pipeline
-    wavefront_data, aberration_data, focus_data = run_pipeline(params, verbose=verbose)
+    wavefront_data, aberration_data, focus_data = run_pipeline(
+        params, verbose=verbose, img=img, dark=dark, flat=flat
+    )
 
     # Print summary
     print_results_summary(wavefront_data, aberration_data, focus_data)
@@ -298,9 +349,9 @@ def analyze(params: dict, output_dir: Path = None, verbose: bool = False):
 # Demo: Run with experimental data when executed directly
 # =============================================================================
 if __name__ == "__main__":
-    from params import get_exp_params
+    from params import get_params
 
-    params = get_exp_params()
+    params = get_params()
     output_dir = Path(__file__).parent.parent / "output" / "direct"
 
     analyze(params, output_dir=output_dir)
