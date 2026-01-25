@@ -1,5 +1,14 @@
+# Core scientific computing
 numpy
 scipy
+
+# Image processing
+Pillow
+opencv-python
+scikit-image
+
+# Visualization
 matplotlib
-Pillow # For image processing
-tqdm  # For progress bars
+
+# Utilities
+tqdm

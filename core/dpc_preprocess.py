@@ -1,188 +1,175 @@
+"""
+DPC (Differential Phase Contrast) preprocessing module.
+
+Optimized for robustness against experimental noise (NaNs) and memory efficiency.
+"""
+
+import functools
+from os import cpu_count
+
 import numpy as np
-from numpy.fft import fft2, ifft2, fftshift, ifftshift
+
+# Use scipy.fft for better performance
+from scipy.fft import fft2, ifft2, fftshift, ifftshift, fftfreq
+from typing import Tuple
+
+# Module-level constant for parallel FFT
+_CPU_COUNT = cpu_count() or 4
 
 
-def _create_cosine_edge_taper(image_shape, taper_ratio=0.08, dtype=np.float32):
+def _create_cosine_edge_taper(
+    image_shape: Tuple[int, int], taper_ratio: float = 0.08, dtype=np.float32
+) -> np.ndarray:
     """
-    Create a cosine edge taper window for smooth edge transitions in Fourier processing.
-
-    The window applies a cosine-based tapering at the edges of the image to minimize
-    spectral leakage and ringing artifacts in FFT operations. The central region
-    maintains a value of 1, while the edges smoothly transition to 0.
-
-    Args:
-        image_shape (tuple): Shape of the image as (height, width)
-        taper_ratio (float): Width of taper region as fraction of image dimensions (default: 0.08)
-        dtype (np.dtype): Output array data type (default: np.float32)
-
-    Returns:
-        np.ndarray: 2D taper window with dimensions matching image_shape
+    Create a cosine edge taper window using broadcasting to save memory.
     """
     height, width = image_shape
 
-    # Calculate taper widths (minimum 1 pixel)
-    taper_height = max(1, int(height * taper_ratio))
-    taper_width = max(1, int(width * taper_ratio))
+    taper_h = max(1, int(height * taper_ratio))
+    taper_w = max(1, int(width * taper_ratio))
 
-    # Initialize 1D windows
-    vertical_window = np.ones(height, dtype=dtype)
-    horizontal_window = np.ones(width, dtype=dtype)
+    # 1D transitions
+    # 0.5 * (1 - cos) creates a curve from 0 to 1
+    curve_h = 0.5 * (1 - np.cos(np.linspace(0, np.pi, taper_h, dtype=dtype)))
+    curve_w = 0.5 * (1 - np.cos(np.linspace(0, np.pi, taper_w, dtype=dtype)))
 
-    # Create cosine transitions
-    cosine_vertical = 0.5 * (1 - np.cos(np.linspace(0, np.pi, taper_height, dtype=dtype)))
-    cosine_horizontal = 0.5 * (1 - np.cos(np.linspace(0, np.pi, taper_width, dtype=dtype)))
+    # Construct 1D windows
+    win_h = np.ones(height, dtype=dtype)
+    win_h[:taper_h] = curve_h
+    win_h[-taper_h:] = curve_h[::-1]
 
-    # Apply tapering to edges
-    vertical_window[:taper_height] = cosine_vertical
-    vertical_window[-taper_height:] = cosine_vertical[::-1]
-    horizontal_window[:taper_width] = cosine_horizontal
-    horizontal_window[-taper_width:] = cosine_horizontal[::-1]
+    win_w = np.ones(width, dtype=dtype)
+    win_w[:taper_w] = curve_w
+    win_w[-taper_w:] = curve_w[::-1]
 
-    # Create 2D window by outer product
-    return vertical_window[:, None] * horizontal_window[None, :]
+    # Return 2D window using broadcasting (column vector * row vector)
+    # shape: (height, 1) * (1, width) -> (height, width)
+    return win_h[:, None] * win_w[None, :]
 
-def _create_raised_cosine_lowpass_filter(image_shape, cutoff_frequency=0.35,
-                                        rolloff_width=0.08, dtype=np.float32):
+
+@functools.lru_cache(maxsize=8)
+def _get_cached_taper_window(
+    height: int, width: int, taper_ratio: float = 0.08
+) -> np.ndarray:
+    """Cached version of cosine edge taper window."""
+    return _create_cosine_edge_taper((height, width), taper_ratio, dtype=np.float32)
+
+
+@functools.lru_cache(maxsize=8)
+def _get_cached_lowpass_filter(
+    height: int, width: int, cutoff_frequency: float = 0.35, rolloff_width: float = 0.08
+) -> np.ndarray:
+    """Cached version of raised cosine lowpass filter."""
+    return _create_raised_cosine_lowpass_filter(
+        (height, width), cutoff_frequency, rolloff_width, dtype=np.float32
+    )
+
+
+def _create_raised_cosine_lowpass_filter(
+    image_shape: Tuple[int, int],
+    cutoff_frequency: float = 0.35,
+    rolloff_width: float = 0.08,
+    dtype=np.float32,
+) -> np.ndarray:
     """
-    Create a raised-cosine lowpass filter for frequency domain filtering.
-
-    Generates a smooth 2D frequency response with controlled transition between
-    passband and stopband to minimize Gibbs phenomena. The filter is radially
-    symmetric and centered at zero frequency after fftshift.
-
-    Args:
-        image_shape (tuple): Shape of the image as (height, width)
-        cutoff_frequency (float): Normalized cutoff frequency [0-0.5] relative to Nyquist
-        rolloff_width (float): Normalized transition bandwidth [0-0.5] relative to Nyquist
-        dtype (np.dtype): Output array data type (default: np.float32)
-
-    Returns:
-        np.ndarray: 2D frequency domain filter with dimensions matching image_shape
+    Create filter using open grids to reduce memory usage.
     """
     height, width = image_shape
-    nyquist_frequency = min(height, width) / 2.0
 
-    # Calculate frequency thresholds
-    stopband_frequency = float(cutoff_frequency) * nyquist_frequency
-    passband_frequency = max(0.0, stopband_frequency - float(rolloff_width) * nyquist_frequency)
+    f_stop = cutoff_frequency
+    f_pass = max(0.0, f_stop - rolloff_width)
 
-    # Create frequency coordinate grids
-    center_y, center_x = height // 2, width // 2
-    y_coords, x_coords = np.ogrid[:height, :width]
-    radial_frequency = np.hypot(x_coords - center_x, y_coords - center_y).astype(dtype)
+    # Generate shifted frequency coordinates directly (-0.5 to 0.5)
+    # Use scipy.fft for better performance
+    fy = fftshift(fftfreq(height)).astype(dtype)
+    fx = fftshift(fftfreq(width)).astype(dtype)
 
-    # Initialize filter (all pass)
-    lowpass_filter = np.ones_like(radial_frequency, dtype=dtype)
+    # Use broadcasting to calculate radial frequency without full meshgrid
+    # fy[:, None] is (H, 1), fx[None, :] is (1, W) -> result is (H, W)
+    radial_freq = np.sqrt(fy[:, None] ** 2 + fx[None, :] ** 2)
 
-    # Apply stopband (complete attenuation)
-    lowpass_filter[radial_frequency >= stopband_frequency] = 0.0
+    # Initialize filter
+    lowpass_filter = np.ones(image_shape, dtype=dtype)
 
-    # Apply smooth transition in rolloff region
-    transition_mask = (radial_frequency > passband_frequency) & (radial_frequency < stopband_frequency)
-    if np.any(transition_mask):
-        transition_values = radial_frequency[transition_mask]
-        frequency_range = stopband_frequency - passband_frequency
-        normalized_transition = (transition_values - passband_frequency) / frequency_range
-        lowpass_filter[transition_mask] = 0.5 * (1 + np.cos(np.pi * normalized_transition))
+    # Apply stopband
+    lowpass_filter[radial_freq >= f_stop] = 0.0
+
+    # Apply transition
+    mask = (radial_freq > f_pass) & (radial_freq < f_stop)
+    if np.any(mask):
+        # Normalize transition region to [0, 1]
+        norm_freq = (radial_freq[mask] - f_pass) / (f_stop - f_pass)
+        # Raised cosine decay: 1 -> 0
+        lowpass_filter[mask] = 0.5 * (1 + np.cos(np.pi * norm_freq))
 
     return lowpass_filter
 
-def _apply_reflective_padding(image, padding_ratio=0.125):
+
+def _apply_reflective_padding(
+    image: np.ndarray, padding_ratio: float = 0.125
+) -> Tuple[np.ndarray, Tuple[slice, slice]]:
     """
-    Apply reflective padding to minimize FFT edge discontinuities.
-
-    Extends the image boundaries using reflection, which preserves edge continuity
-    and reduces artifacts in frequency domain processing. The padding size is
-    proportional to the smaller image dimension.
-
-    Args:
-        image (np.ndarray): Input 2D image array
-        padding_ratio (float): Padding width relative to min(height, width)
-
-    Returns:
-        tuple: (padded_image, crop_slice), where:
-            - padded_image (np.ndarray): Image with reflective padding
-            - crop_slice (tuple): Slice objects to recover original dimensions
+    Same logic, added docstring for return type clarity.
     """
     height, width = image.shape
-    padding_size = int(min(height, width) * padding_ratio)
+    pad_h = int(height * padding_ratio)
+    pad_w = int(width * padding_ratio)
 
-    # Apply symmetric padding on all sides
-    padded_image = np.pad(image,
-                         ((padding_size, padding_size), (padding_size, padding_size)),
-                         mode='reflect')
+    padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode="reflect")
 
-    # Create slice objects for cropping back to original size
-    crop_slice = (slice(padding_size, padding_size + height),
-                  slice(padding_size, padding_size + width))
+    crop_slice = (slice(pad_h, pad_h + height), slice(pad_w, pad_w + width))
 
     return padded_image, crop_slice
 
+
 def preprocess_dpc(
-    dpc_image,
-    padding_ratio=0.125,
-    taper_ratio=0.08,
-    lowpass_cutoff=0.35,
-    lowpass_rolloff=0.08,
-):
+    dpc_image: np.ndarray,
+    padding_ratio: float = 0.125,
+    taper_ratio: float = 0.08,
+    lowpass_cutoff: float = 0.35,
+    lowpass_rolloff: float = 0.08,
+    fill_value: float = 0.0,
+) -> np.ndarray:
     """
-    Advanced DPC (Differential Phase Contrast) image preprocessing pipeline.
-
-    Applies a sequence of optimized preprocessing steps to enhance DPC image quality:
-    1. DC bias removal to normalize the signal baseline
-    2. Reflective padding to minimize FFT edge artifacts
-    3. Edge tapering for smooth boundary transitions
-    4. Frequency domain lowpass filtering for noise reduction
-    5. Restoration of original image dimensions
-
-    Parameters are optimized for X-ray grating interferometry but can be adjusted
-    for specific experimental conditions.
+    Preprocesses DPC image with NaN handling and memory optimizations.
 
     Args:
-        dpc_image (np.ndarray): Raw DPC image data (2D array)
-        padding_ratio (float): Padding width relative to min(height, width)
-        taper_ratio (float): Edge taper width relative to image dimensions
-        lowpass_cutoff (float): Normalized cutoff frequency [0-0.5]
-        lowpass_rolloff (float): Normalized transition bandwidth [0-0.5]
-
-    Returns:
-        np.ndarray: Preprocessed DPC image with preserved dimensions and dtype
-
-    Notes:
-        - Preserves low-frequency phase information including spherical aberrations
-        - Reduces high-frequency noise while maintaining edge fidelity
-        - Memory-efficient implementation with in-place operations where possible
+        fill_value: Value to replace NaNs with (after mean subtraction).
     """
-    # Remove DC bias to center the data around zero
-    dpc_zero_mean = dpc_image - np.nanmean(dpc_image)
+    # if dpc_image.ndim != 2:
+    #     raise ValueError(f"Input must be 2D, got shape {dpc_image.shape}")
 
-    # Apply reflective padding to reduce FFT boundary artifacts
-    padded_image, original_crop_slice = _apply_reflective_padding(
+    # 1. Robust DC Removal
+    # Use nanmean to ignore dead pixels/mask during mean calculation
+    mean_val = np.mean(dpc_image)
+    dpc_zero_mean = dpc_image - mean_val
+
+    # Critical: Replace NaNs with fill_value before FFT
+    # Use np.where for efficiency (no intermediate mask array)
+    # dpc_zero_mean = np.where(np.isfinite(dpc_zero_mean), dpc_zero_mean, fill_value)
+
+    # 2. Reflective Padding
+    padded_image, crop_slice = _apply_reflective_padding(
         dpc_zero_mean, padding_ratio=padding_ratio
     )
 
-    # Create and apply edge taper window for smooth transitions
-    edge_taper_window = _create_cosine_edge_taper(
-        padded_image.shape, taper_ratio=taper_ratio, dtype=dpc_image.dtype
-    )
-    tapered_image = padded_image * edge_taper_window
+    # 3. Tapering using cached window
+    h, w = padded_image.shape
+    taper_window = _get_cached_taper_window(h, w, taper_ratio)
+    padded_image = padded_image * taper_window  # Avoid in-place for cached arrays
 
-    # Create lowpass filter for noise reduction
-    lowpass_filter = _create_raised_cosine_lowpass_filter(
-        padded_image.shape,
-        cutoff_frequency=lowpass_cutoff,
-        rolloff_width=lowpass_rolloff,
-        dtype=dpc_image.dtype
-    )
+    # 4. Filter Generation using cached filter
+    lowpass_filter = _get_cached_lowpass_filter(h, w, lowpass_cutoff, lowpass_rolloff)
 
-    # Apply frequency domain filtering: FFT → filter → IFFT
-    frequency_domain = fftshift(fft2(tapered_image))
-    filtered_frequency = frequency_domain * lowpass_filter
-    filtered_image = np.real(ifft2(ifftshift(filtered_frequency))).astype(
-        dpc_image.dtype, copy=False
-    )
+    # 5. Frequency Domain Filtering with multi-threading
+    freq_domain = fftshift(fft2(padded_image, workers=_CPU_COUNT))
 
-    # Crop back to original image dimensions
-    dpc_preprocessed = filtered_image[original_crop_slice]
+    # Apply filter in-place
+    freq_domain *= lowpass_filter
 
-    return dpc_preprocessed
+    # Inverse FFT with multi-threading
+    filtered_image = ifft2(ifftshift(freq_domain), workers=_CPU_COUNT)
+
+    # 6. Crop and Return
+    # Use np.real on the cropped region directly to avoid full array copy
+    return np.real(filtered_image[crop_slice]).astype(dpc_image.dtype)

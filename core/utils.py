@@ -1,13 +1,68 @@
-import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
+import tifffile
 from scipy import constants
+
+
+def calculate_magnification_correction(params):
+    """
+    Calculate the theoretical scale factor for spherical wave DPC.
+
+    Args:
+        params: Dictionary containing optical system parameters
+
+    Returns:
+        Theoretical scale factor
+    """
+    d = params["det2sample"]  # Detector-to-sample distance
+    R = params["source_dist"]  # Source-to-sample distance
+
+    scale_factor = R / (R + d)
+    return scale_factor
+
+
+def load_images(
+    image_path,
+    dark_image_path=None,
+    flat_image_path=None,
+):
+    """
+    Load raw, dark, and flat images for image correction.
+
+    Parameters
+    ----------
+    image_path : str
+        Path to the sample image
+    dark_image_path : str, optional
+        Path to the dark image
+    flat_image_path : str, optional
+        Path to the flat image
+
+    Returns
+    -------
+    tuple
+        (sample_image, dark_image, flat_image) as float32 arrays
+    """
+    # Load and convert sample image (use copy=False for faster conversion)
+    image = tifffile.imread(image_path).astype(np.float32, copy=False)
+
+    # Handle dark image
+    if dark_image_path:
+        dark_image = tifffile.imread(dark_image_path).astype(np.float32, copy=False)
+    else:
+        dark_image = None
+
+    # Handle flat image
+    if flat_image_path:
+        flat_image = tifffile.imread(flat_image_path).astype(np.float32, copy=False)
+    else:
+        flat_image = None
+
+    return image, dark_image, flat_image
 
 
 def calculate_wavelength(photon_energy):
     """Calculate the wavelength from photon energy."""
-    hc = constants.value(
-        'inverse meter-electron volt relationship')  # h * c in eV * m
+    hc = constants.value("inverse meter-electron volt relationship")  # h * c in eV * m
     return hc / photon_energy
 
 
@@ -15,116 +70,144 @@ def center_crop(img, target_size):
     """
     Center-crop a 2D image array to target_size x target_size.
     If the image is smaller than target_size in a dimension, that dimension is left as-is.
-    Returns the cropped image.
+    Returns a contiguous array for optimal FFT performance.
     """
     height, width = img.shape
-    if height >= target_size:
+    if height > target_size:
         start_h = (height - target_size) // 2
         end_h = start_h + target_size
     else:
         start_h = 0
         end_h = height
 
-    if width >= target_size:
+    if width > target_size:
         start_w = (width - target_size) // 2
         end_w = start_w + target_size
     else:
         start_w = 0
         end_w = width
 
-    return img[start_h:end_h, start_w:end_w]
+    cropped = img[start_h:end_h, start_w:end_w]
+    # Ensure contiguous memory layout for faster FFT
+    if not cropped.flags["C_CONTIGUOUS"]:
+        return np.ascontiguousarray(cropped, dtype=np.float32)
+    return cropped
 
 
-def image_correction(image, flat=None, dark=None, epsilon=1e-8, normalize=True):
-    f32 = np.float32
-    if flat is None and dark is None:
-        out = image.astype(f32, copy=True)
-    elif flat is None:
-        out = image.astype(f32, copy=True); out -= dark.astype(f32, copy=False)
+def image_correction(
+    image, flat=None, dark=None, epsilon=1e-8, normalize=True, **kwargs
+):
+    """
+    General flat-field correction function.
+
+    Parameters
+    ----------
+    image : ndarray
+        Self-image / sample image
+    flat : ndarray or None
+        Flat-field image (flat / open-beam), optional
+    dark : ndarray or None
+        Dark-field image (dark), optional
+    epsilon : float
+        Small constant to avoid division by zero
+    normalize : bool
+        Whether to normalize the result to mean ~1
+
+    Returns
+    -------
+    corrected_image : ndarray
+        Corrected image
+
+    Compatibility
+    -------------
+    Still compatible with old parameter names: I_self, I_flat, I_dark, eps
+    """
+    # Use float32 for faster computation (sufficient precision for image processing)
+    image = np.asarray(image, dtype=np.float32)
+
+    # Case 3 and Case 4: No flat field correction needed
+    if flat is None:
+        if dark is not None:
+            dark = np.asarray(dark, dtype=np.float32)
+            return image - dark  # Simple dark subtraction, no division needed
+        else:
+            return image  # No correction needed, return as-is (already float32)
+
+    # Case 1 and Case 2: Flat field correction
+    flat = np.asarray(flat, dtype=np.float32)
+
+    if dark is not None:
+        dark = np.asarray(dark, dtype=np.float32)
+        numerator = image - dark
+        denominator = flat - dark
     else:
-        num = image.astype(f32, copy=False) - (dark.astype(f32, copy=False) if dark is not None else 0)
-        den = (flat.astype(f32, copy=False) - (dark.astype(f32, copy=False) if dark is not None else 0))
-        mask = den > epsilon;
-        out = np.zeros_like(num, dtype=f32);
-        np.divide(num, den + epsilon, out=out, where=mask)
-    if normalize:
-        cnt = np.count_nonzero(out) if flat is not None else out.size
-        if cnt > 0: out /= (out.sum(dtype=np.float64) / cnt)
-    return out
+        numerator = image
+        denominator = flat
+
+    # Optimized division with epsilon added to denominator directly
+    # Avoid creating boolean mask array for better performance
+    corrected_image = numerator / (denominator + epsilon)
+
+    return corrected_image
 
 
-def load_images(image_path, dark_image_path=None, flat_image_path=None):
-    with Image.open(image_path) as im:
-        image = np.array(im, dtype=np.float32)
-    dark = None if not dark_image_path else np.array(Image.open(dark_image_path), dtype=np.float32)
-    flat = None if not flat_image_path else np.array(Image.open(flat_image_path), dtype=np.float32)
-    return image, dark, flat
-
-
-def plot_distance_relationship(params):
+def calculate_rotation_angle(
+    params: dict,
+    verbose: bool = True,
+    crop_size: int = 2048,
+) -> float:
     """
-    Plot a schematic diagram of the distance relationship, showing the positional relationship between the source, sample, and detector
+    Calculate the rotation angle needed to align grating peaks horizontally.
 
-    Parameters:
-    - params: A dictionary containing calibrated distance parameters
-    - old_source_dist: Source distance before calibration
-    - total_dist: Total distance
-    - base_path: Save path
+    Call this once on a reference image, then pass the rotation_angle to
+    load_and_preprocess_image() for subsequent frames to skip expensive
+    FFT + peak finding computation.
+
+    Parameters
+    ----------
+    params : dict
+        Configuration parameters with image_path, pixel_size, pattern_period
+    verbose : bool
+        Whether to print status messages
+    crop_size : int
+        Size to crop the image to (default: 2048)
+
+    Returns
+    -------
+    float
+        Rotation angle in degrees
     """
-    # import matplotlib.patches as patches
+    from os import cpu_count
+    from scipy.fft import fft2, fftshift
+    from .grating_analysis import (
+        calculate_harmonic_periods,
+        accurate_harmonic_periods,
+        calculate_rotation_angle_from_peaks,
+    )
 
-    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    # Load and preprocess image
+    img, dark, flat = load_images(
+        params["image_path"], params["dark_image_path"], params["flat_image_path"]
+    )
+    img = image_correction(img, flat=flat, dark=dark, epsilon=1e-8, normalize=False)
+    img_cropped = center_crop(img, target_size=crop_size)
 
-    # Top plot: distance relationship before calibration
-    ax.set_xlim(-1, params["total_dist"] + 1)
-    ax.set_ylim(-0.2, 1.5)
+    # Calculate harmonic periods
+    harmonic_periods = calculate_harmonic_periods(
+        (img_cropped.shape[0], img_cropped.shape[1]),
+        params["pixel_size"],
+        params["pattern_period"],
+    )
 
-    # Draw the optical path
-    ax.plot([-1, params["total_dist"] + 1], [0.5, 0.5], 'k--', linewidth=2, alpha=0.3)
+    # Compute FFT and find peaks
+    img32 = np.asarray(img_cropped, dtype=np.float32, order="C")
+    img_fft = fftshift(fft2(img32, norm="ortho", workers=cpu_count()))
+    _, peak_positions = accurate_harmonic_periods(img_fft, harmonic_periods)
 
-    # Mark position points
-    source_pos = 0
-    sample_pos_old = params["old_source_dist"]
-    det_pos = params["old_source_dist"] + params["det2sample"]
-    delta = params["old_source_dist"] - params["source_dist"]
-    # Draw each component
+    # Calculate angle using core function
+    angle = calculate_rotation_angle_from_peaks(peak_positions)
 
-    ax.plot(source_pos, 0.5, 'o', color='gray', markersize=10, label='Zero point')
-    ax.plot(delta, 0.5, 'ro', markersize=10, label='Focus point')
-    ax.plot([sample_pos_old, sample_pos_old], [0.4, 0.6], 'b-', linewidth=3, label='Sample')
-    ax.plot([det_pos, det_pos], [0.4, 0.6], 'g-', linewidth=3, label='Detector')
+    if verbose:
+        print(f"Calculated rotation angle: {angle:.4f} degrees")
 
-    # Add distance annotations
-    ax.annotate('', xy=(sample_pos_old, 0.4), xytext=(source_pos, 0.4),
-                arrowprops=dict(arrowstyle='<->', color='gray', lw=2))
-    ax.text((source_pos + sample_pos_old) / 2, 0.35,
-            f'old_source_dist = {sample_pos_old:.3f} m',
-            ha='center', va='top', fontsize=10, color='gray')
-
-    ax.annotate('', xy=(det_pos, 0.4), xytext=(sample_pos_old, 0.4),
-                arrowprops=dict(arrowstyle='<->', color='blue', lw=2))
-    ax.text((sample_pos_old + det_pos) / 2, 0.35,
-            f'det2sample = {params["det2sample"]:.3f} m',
-            ha='center', va='bottom', fontsize=10, color='blue')
-
-    ax.annotate('', xy=(delta, 0.65), xytext=(source_pos, 0.65),
-                arrowprops=dict(arrowstyle='<->', color='green', lw=2))
-    ax.text((delta + source_pos) / 2, 0.60,
-            f'focus_adjust = {delta:.3f} m',
-            ha='center', va='bottom', fontsize=10, color='green')
-
-    ax.annotate('', xy=(det_pos, 0.65), xytext=(delta, 0.65),
-                arrowprops=dict(arrowstyle='<->', color='red', lw=2))
-    ax.text((delta + det_pos) / 2, 0.7,
-            f'total_dist = {params["total_dist"]:.3f} m',
-            ha='center', va='bottom', fontsize=10, color='red')
-
-    ax.set_title('Distance Relationship', fontsize=14)
-    ax.set_xlabel('Distance (m)')
-    ax.set_ylabel('')
-    ax.legend(loc='best')
-    ax.grid(True, alpha=0.3)
-    ax.set_yticks([])
-
-    plt.tight_layout()
-    plt.show()
+    return angle

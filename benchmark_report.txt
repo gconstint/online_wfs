@@ -1,1 +1,0 @@
-Average runtime over 10 runs: 0.0890 seconds

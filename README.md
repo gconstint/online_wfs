@@ -4,98 +4,100 @@ A comprehensive data analysis pipeline for X-ray beam characterization using gra
 
 ## Overview
 
-This project provides a complete and robust data analysis pipeline for X-ray Grating Interferometry (XGI) wavefront sensing. It is designed for both experimental and simulated data, offering detailed beam characterization, phase reconstruction, and focus analysis capabilities. The pipeline is implemented in Python and leverages multi-threading for efficient real-time analysis.
+This project provides a complete and robust data analysis pipeline for X-ray Grating Interferometry (XGI) wavefront sensing. It is designed for high-performance, real-time analysis of X-ray beam wavefronts, supporting both single-frame analysis and continuous streaming modes. The pipeline is implemented in Python with optimized numerical algorithms and multi-threading capabilities.
 
-## How it Works
+## Key Features
 
-The pipeline follows a standard XGI analysis workflow:
+*   **Real-time Capabilities:**
+    *   **Streaming Runner (`runner.py`):** A dedicated runner for continuous data acquisition and processing.
+    *   **Three-Stage Architecture:** Decoupled Data Reading, Processing, and Saving for maximum throughput.
+    *   **Async Saving:** Non-blocking I/O operations for saving complex result sets.
+*   **Advanced Analysis:**
+    *   **Wavefront Reconstruction:** DPC-based phase retrieval with Frankot-Chellappa integration.
+    *   **Zernike Decomposition:** Full Zernike polynomial fitting (up to 36 terms) for aberration analysis.
+    *   **Focus Characterization:** Numerical propagation to focus, spot size (FWHM) measurement, and intensity profiling.
+    *   **Beam Profiling:** 2D Gaussian fitting and statistical beam analysis.
+*   **Dual Mode:** Seamlessly switch between Experimental data and Simulation modes.
 
-1.  **Image Preprocessing:** Raw images are corrected for dark-field and flat-field variations and then cropped to a standardized size.
-2.  **Frequency Domain Analysis:** The preprocessed image is transformed into the frequency domain using FFT. The harmonic peaks of the grating pattern are identified to determine the precise grating period and orientation.
-3.  **Phase Reconstruction:** The differential phase contrast (DPC) in both the horizontal and vertical directions is calculated from the harmonic components. The phase is then reconstructed from the DPC signals using a Frankot-Chellappa algorithm.
-4.  **Wavefront Analysis:** A model (e.g., a parabolic wavefront) is fitted to the reconstructed phase to quantify aberrations and other wavefront characteristics.
-5.  **Focus Analysis:** The pipeline analyzes the beam's focus by propagating the reconstructed wavefront to the focal plane and characterizing the spot size and position.
+## Quick Start (Streaming Mode)
 
-## Features
+The core feature of this project is the streaming runner, which simulates a continuous data acquisition pipeline.
 
-*   **End-to-End Pipeline:** A complete solution for XGI wavefront sensing, from raw data to final analysis.
-*   **Dual Mode:** Supports both experimental and simulated data.
-*   **High Performance:** Utilizes multi-threading and optimized numerical algorithms for real-time processing.
-*   **Comprehensive Analysis:** Provides a wide range of analysis capabilities, including:
-    *   Image preprocessing and normalization
-    *   Grating interference pattern analysis
-    *   Wavefront reconstruction and phase map generation
-    *   Wavefront error analysis
-    *   Beam position and size measurements
-    *   Focus characterization
+**Run the streaming pipeline:**
+
+```bash
+# Default mode (10Hz, infinite loop)
+python runner.py
+
+# High-speed mode (20Hz)
+python runner.py --fps 20
+
+# Run for a specific duration (e.g., 60 seconds)
+python runner.py --duration 60
+```
+
+**Output Structure:**
+Results are saved in `output/stream/frame_XXXXXX/`:
+
+*   `phase.npy`: Reconstructed phase map
+*   `focus_field.npy`: Complex field at the focal plane
+*   `zernike_results.txt`: Zernike coefficients and RMS error
+*   `params.txt`: Comprehensive parameter file (Wavefront, Calibration, ROI, Focus metadata)
+
+## Project Structure
+
+```
+online_wfs/
+├── runner.py                       # Main Entry Point: Streaming Pipeline Runner
+├── pipeline.py                     # Core XGI Analysis Pipeline (8-stage workflow)
+├── params.py                       # Configuration Management
+├── core/                           # Analysis Kernels
+│   ├── phase_analysis.py           # Phase reconstruction & DPC
+│   ├── zernike_analysis.py         # Zernike fitting
+│   ├── propagation.py              # Wavefront propagation
+│   ├── grating_analysis.py         # Interferogram analysis
+│   └── ...
+├── data/                           # Sample Data
+│   └── sample_exp.tif              # Default experimental sample
+└── output/                         # Analysis Results directory
+```
+
+## Architecture
+
+The system utilizes a balanced generic pipeline architecture:
+
+1.  **Stage 1: Data Reader (Thread)**
+    *   Simulates/Acquires frames at target FPS.
+    *   Implements frame dropping policy to maintain real-time constraints.
+
+2.  **Stage 2: Processor (Main)**
+    *   Executes the 8-stage XGI pipeline.
+    *   Performs FFTs, phase unwrapping, and fitting.
+
+3.  **Stage 3: Saver (Thread)**
+    *   Asynchronously writes results to disk.
+    *   Handles data formatting (NPY/TXT).
 
 ## Installation
 
 1.  **Clone the repository:**
-
     ```bash
-    git clone https://github.com/your-username/online_wfs.git
+    git clone https://github.com/your-org/online_wfs.git
     cd online_wfs
     ```
 
-2.  **Install dependencies:**
-
+2.  **Install requirements:**
     ```bash
     pip install -r requirements.txt
     ```
 
-## Usage
+## Dependencies
 
-The pipeline can be run in either experimental or simulation mode using the provided example scripts.
+-   **numpy, scipy**: Core numerical computing
+-   **matplotlib**: Visualization (optional for headless runner)
+-   **Pillow, opencv-python**: Image I/O and processing
+-   **scikit-image**: Advanced image algorithms
 
-### Experimental Mode
+## License
 
-To process experimental data, run the `example_exp.py` script:
-
-```bash
-python example_exp.py
-```
-
-### Simulation Mode
-
-To process simulated data, run the `example_sim.py` script:
-
-```bash
-python example_sim.py
-```
-
-## Configuration
-
-The pipeline is configured through a Python dictionary of parameters. The key parameters are:
-
-```python
-params = {
-    'pixel_size': [0.715e-6, 0.715e-6],  # Detector pixel size (m)
-    'wavelength': wavelength,             # X-ray wavelength (m)
-    'det2sample': 0.35,                  # Grating-to-detector distance (m)
-    'total_dist': 6.5,                   # Source-to-detector distance (m)
-    'grating_period': period,            # Grating period (m)
-}
-```
-
-These parameters can be adjusted in the `example_exp.py` and `example_sim.py` scripts.
-
-## Project Structure
-
-*   `core/`: Core analysis modules
-    *   `__init__.py`: Makes Python treat the directory as a package
-    *   `beam_analysis.py`: Functions for beam characterization
-    *   `dpc_preprocess.py`: Functions for DPC preprocessing
-    *   `grating_analysis.py`: Functions for grating pattern analysis
-    *   `optical_physics.py`: Functions for physical calculations
-    *   `phase_analysis.py`: Functions for phase reconstruction
-    *   `phase_fit.py`: Functions for wavefront fitting
-    *   `propagation.py`: Functions for beam propagation
-    *   `utils.py`: Utility functions
-    *   `wfs_pipeline.py`: Functions for WFS pipeline
-*   `example_exp.py`: Example script for experimental mode
-*   `example_sim.py`: Example script for simulation mode
-*   `benchmark_pipeline.py`: Script for benchmarking the pipeline
-*   `pipline.py`: Main processing pipeline
-*   `requirements.txt`: Python dependencies
-*   `README.md`: This file
+This project is open source. See the LICENSE file for details.

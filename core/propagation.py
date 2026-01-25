@@ -1,10 +1,17 @@
 import numpy as np
+from os import cpu_count
+from scipy.fft import fft2, ifft2, fftshift, ifftshift, fftfreq
+
+# Module-level constant for parallel FFT
+_CPU_COUNT = cpu_count() or 4
 
 
-def two_steps_fresnel_method(E, wavelength, z, dx, dy, scale_factor_x=1, scale_factor_y=None):
+def two_steps_fresnel_method(
+    E, wavelength, z, dx, dy, scale_factor_x=1, scale_factor_y=None
+):
     """
-    Use the two-step Fresnel method to calculate the propagation of the light field, supporting different scale transformations in the X and Y directions
-    
+    Calculate light field propagation using two-step Fresnel method, supporting different scaling in X and Y directions.
+
     Parameters:
     -----------
     E : ndarray
@@ -14,62 +21,84 @@ def two_steps_fresnel_method(E, wavelength, z, dx, dy, scale_factor_x=1, scale_f
     z : float
         Propagation distance
     dx : float
-        Sampling interval in X direction
+        X-direction sampling interval
     dy : float
-        Sampling interval in Y direction
+        Y-direction sampling interval
     scale_factor_x : float, optional
-        Scaling factor in X direction, default is 1
+        X-direction scaling factor, default is 1
     scale_factor_y : float, optional
-        Scaling factor in Y direction, if None, the value of scale_factor_x is used
+        Y-direction scaling factor, if None uses scale_factor_x value
+
+    Returns:
+    --------
+    ndarray
+        Propagated light field
     """
-    
-    # If the scaling factor in the Y direction is not specified, use the scaling factor in the X direction
+    # If Y-direction scale factor not specified, use X-direction scale factor
     if scale_factor_y is None:
         scale_factor_y = scale_factor_x
 
-    Nx = E.shape[0]
-    Ny = E.shape[1]
-    extent_x = Nx * dx
-    extent_y = Ny * dy
-
-    # Calculate the coordinate grid
-    x = dx * (np.arange(Nx) - Nx//2)
-    y = dy * (np.arange(Ny) - Ny//2)
-    xx, yy = np.meshgrid(x, y)
-
-    # Calculate the input and output plane sizes
-    L1x = extent_x
-    L1y = extent_y
+    Nx, Ny = E.shape
+    L1x = Nx * dx
+    L1y = Ny * dy
     L2x = L1x * scale_factor_x
     L2y = L1y * scale_factor_y
 
+    # Pre-compute constants
+    inv_z_wavelength = 1.0 / (z * wavelength)
+    pi_inv_z_wavelength = np.pi * inv_z_wavelength
+
+    # Use 1D arrays + broadcasting instead of meshgrid (saves memory)
+    x = dx * (np.arange(Nx, dtype=np.float64) - Nx // 2)
+    y = dy * (np.arange(Ny, dtype=np.float64) - Ny // 2)
+
     # Step 1: Spatial domain phase modulation and FFT
-    phase1 = np.exp(1j * np.pi/(z * wavelength) * 
-                    ((L1x-L2x)/L1x * xx**2 + (L1y-L2y)/L1y * yy**2))
-    E1 = np.fft.fftshift(np.fft.fft2(E * phase1))
-
-    # Calculate the frequency grid
-    fx = np.fft.fftshift(np.fft.fftfreq(Nx, dx))
-    fy = np.fft.fftshift(np.fft.fftfreq(Ny, dy))
-    fxx, fyy = np.meshgrid(fx, fy)
-
-    # Step 2: Frequency domain phase modulation and IFFT
-    phase2 = np.exp(-1j * np.pi * wavelength * z * 
-                    (L1x/L2x * fxx**2 + L1y/L2y * fyy**2))
-    E2 = np.fft.ifft2(np.fft.ifftshift(phase2 * E1))
-
-    # Calculate the scaled coordinate grid
-    xx_scaled = xx * scale_factor_x
-    yy_scaled = yy * scale_factor_y
-
-    # Final phase correction
-    phase3 = np.sqrt(L1x * L1y / (L2x * L2y)) * np.exp(
-        1j * 2*np.pi/wavelength * z -
-        1j * np.pi/(z * wavelength) * 
-        ((L1x-L2x)/L2x * xx_scaled**2 + (L1y-L2y)/L2y * yy_scaled**2)
+    # Use broadcasting: x[:, None] * y[None, :] is equivalent to meshgrid
+    coeff_x1 = (L1x - L2x) / L1x
+    coeff_y1 = (L1y - L2y) / L1y
+    phase1 = np.exp(
+        1j
+        * pi_inv_z_wavelength
+        * (coeff_x1 * x[:, None] ** 2 + coeff_y1 * y[None, :] ** 2)
     )
 
-    # Calculate the final field
-    E_final = E2 * phase3
+    # FFT with multi-threading
+    E1 = fftshift(fft2(E * phase1, workers=_CPU_COUNT))
+
+    # Calculate frequency grid (using broadcasting)
+    fx = fftshift(fftfreq(Nx, dx))
+    fy = fftshift(fftfreq(Ny, dy))
+
+    # Step 2: Frequency domain phase modulation and IFFT
+    coeff_fx = L1x / L2x
+    coeff_fy = L1y / L2y
+    phase2 = np.exp(
+        -1j
+        * np.pi
+        * wavelength
+        * z
+        * (coeff_fx * fx[:, None] ** 2 + coeff_fy * fy[None, :] ** 2)
+    )
+    # IFFT with multi-threading
+    E2 = ifft2(ifftshift(phase2 * E1), workers=_CPU_COUNT)
+
+    # Final phase correction
+    # Pre-compute scaled coordinates
+    x_scaled = x * scale_factor_x
+    y_scaled = y * scale_factor_y
+
+    amplitude_factor = np.sqrt(L1x * L1y / (L2x * L2y))
+    propagation_phase = np.exp(1j * 2 * np.pi / wavelength * z)
+
+    coeff_x3 = (L1x - L2x) / L2x
+    coeff_y3 = (L1y - L2y) / L2y
+    phase3_spatial = np.exp(
+        -1j
+        * pi_inv_z_wavelength
+        * (coeff_x3 * x_scaled[:, None] ** 2 + coeff_y3 * y_scaled[None, :] ** 2)
+    )
+
+    # Combine final field calculation
+    E_final = E2 * (amplitude_factor * propagation_phase * phase3_spatial)
 
     return E_final
