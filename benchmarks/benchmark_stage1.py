@@ -9,19 +9,15 @@ Usage:
     python benchmark_stage1.py [--runs N]
 """
 
-import sys
 from pathlib import Path
 import argparse
 import time
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 from scipy.fft import fft2, fftshift
 from os import cpu_count
 
-from core import (
+from online_wfs.core import (
     load_images,
     image_correction,
     center_crop,
@@ -51,7 +47,9 @@ def get_default_params() -> dict:
         params["grating_period"] * params["total_dist"] / params["source_dist"]
     )
 
-    img_path = str(Path(__file__).parent.parent / "data" / "sample_exp.tif")
+    img_path = str(
+        Path(__file__).parent.parent / "online_wfs" / "data" / "sample_exp.tif"
+    )
     params.update(
         {
             "image_path": img_path,

@@ -11,7 +11,7 @@ and the distance from detector to focus point.
 import numpy as np
 from typing import Dict, Any, Union, Sequence
 
-from core.zernike_analysis import perform_zernike_analysis
+from .zernike_analysis import perform_zernike_analysis
 
 
 def calibrate_focus_position(

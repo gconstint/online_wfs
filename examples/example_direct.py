@@ -10,19 +10,14 @@ This module provides reusable functions for:
 Can be run directly for demonstration, or imported by other examples.
 """
 
-import sys
 from pathlib import Path
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from typing import Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 
-from pipeline import task
-from typing import Optional
-import numpy as np
+from online_wfs.pipeline import task
 
 
 def run_pipeline(

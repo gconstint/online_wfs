@@ -23,7 +23,7 @@ from os import cpu_count
 import numpy as np
 from scipy.fft import fft2, fftshift
 
-from core import (
+from .core import (
     calculate_and_visualize_beam,
     analyze_focus_sampling_from_beam,
     preprocess_dpc,

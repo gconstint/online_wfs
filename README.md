@@ -27,13 +27,16 @@ The core feature of this project is the streaming runner, which simulates a cont
 
 ```bash
 # Default mode (10Hz, infinite loop)
-python runner.py
+python -m online_wfs.runner
+
+# Or, if installed via pip:
+online-wfs-runner
 
 # High-speed mode (20Hz)
-python runner.py --fps 20
+python -m online_wfs.runner --fps 20
 
 # Run for a specific duration (e.g., 60 seconds)
-python runner.py --duration 60
+python -m online_wfs.runner --duration 60
 ```
 
 **Output Structure:**
@@ -47,18 +50,21 @@ Results are saved in `output/stream/frame_XXXXXX/`:
 ## Project Structure
 
 ```
-online_wfs/
-├── runner.py                       # Main Entry Point: Streaming Pipeline Runner
-├── pipeline.py                     # Core XGI Analysis Pipeline (8-stage workflow)
-├── params.py                       # Configuration Management
-├── core/                           # Analysis Kernels
-│   ├── phase_analysis.py           # Phase reconstruction & DPC
-│   ├── zernike_analysis.py         # Zernike fitting
-│   ├── propagation.py              # Wavefront propagation
-│   ├── grating_analysis.py         # Interferogram analysis
-│   └── ...
-├── data/                           # Sample Data
-│   └── sample_exp.tif              # Default experimental sample
+.
+├── online_wfs/
+│   ├── runner.py                   # Main Entry Point: Streaming Pipeline Runner
+│   ├── pipeline.py                 # Core XGI Analysis Pipeline (8-stage workflow)
+│   ├── params.py                   # Configuration Management
+│   ├── core/                       # Analysis Kernels
+│   │   ├── phase_analysis.py       # Phase reconstruction & DPC
+│   │   ├── zernike_analysis.py     # Zernike fitting
+│   │   ├── propagation.py          # Wavefront propagation
+│   │   ├── grating_analysis.py     # Interferogram analysis
+│   │   └── ...
+│   └── data/                       # Sample Data (packaged)
+│       └── sample_exp.tif          # Default experimental sample
+├── examples/
+├── benchmarks/
 └── output/                         # Analysis Results directory
 ```
 
@@ -86,9 +92,14 @@ The system utilizes a balanced generic pipeline architecture:
     cd online_wfs
     ```
 
-2.  **Install requirements:**
+2.  **Install the package:**
     ```bash
-    pip install -r requirements.txt
+    pip install .
+    ```
+
+    For editable installs during development:
+    ```bash
+    pip install -e .
     ```
 
 ## Dependencies
