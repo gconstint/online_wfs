@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "online-wfs"
+version = "0.1.0"
+description = "X-ray Grating Interferometry (XGI) Wavefront Sensor pipeline"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy",
+  "scipy",
+  "Pillow",
+  "opencv-python",
+  "scikit-image",
+  "matplotlib",
+  "tqdm",
+  "tifffile",
+]
+
+[project.scripts]
+online-wfs-runner = "online_wfs.runner:main"
+
+[tool.setuptools.packages.find]
+include = ["online_wfs*"]
+
+[tool.setuptools.package-data]
+"online_wfs.data" = ["*.tif"]

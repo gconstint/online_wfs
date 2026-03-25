@@ -8,12 +8,12 @@ Three-stage architecture:
 3. Data Saving    - Asynchronously save processing results
 
 Usage:
-    python runner.py                    # Default 10Hz, run indefinitely
-    python runner.py --fps 20           # 20Hz
-    python runner.py --duration 60      # Run for 60 seconds
+    python -m online_wfs.runner         # Default 10Hz, run indefinitely
+    online-wfs-runner                   # Same as above (if installed)
+    python -m online_wfs.runner --fps 20      # 20Hz
+    python -m online_wfs.runner --duration 60 # Run for 60 seconds
 """
 
-import sys
 from pathlib import Path
 import threading
 import queue
@@ -21,14 +21,13 @@ import signal
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 import time
+from importlib import resources
 
 import numpy as np
 from PIL import Image
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from pipeline import task
-from params import get_params
+from .pipeline import task
+from .params import get_params
 
 
 # =============================================================================
@@ -398,7 +397,7 @@ def run(
 ):
     """Run streaming pipeline."""
     if output_dir is None:
-        output_dir = Path(__file__).parent / "output" / "stream"
+        output_dir = Path.cwd() / "output" / "stream"
 
     print("=" * 50)
     print("XGI Pipeline - Streaming Mode")
@@ -410,7 +409,9 @@ def run(
 
     # Initialize
     params = get_params()
-    image = np.array(Image.open("data/sample_exp.tif"))
+    image_resource = resources.files("online_wfs.data").joinpath("sample_exp.tif")
+    with image_resource.open("rb") as handle:
+        image = np.array(Image.open(handle))
     print(f"[Init] Image: {image.shape}")
 
     frame_queue = queue.Queue(maxsize=queue_size)
@@ -475,7 +476,7 @@ def run(
 # =============================================================================
 
 
-if __name__ == "__main__":
+def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="XGI Streaming Runner")
@@ -486,3 +487,7 @@ if __name__ == "__main__":
 
     output_dir = Path(args.output) if args.output else None
     run(fps=args.fps, duration=args.duration, output_dir=output_dir)
+
+
+if __name__ == "__main__":
+    main()

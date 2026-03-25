@@ -8,9 +8,9 @@ experimental and simulation scenarios.
 
 from pathlib import Path
 
-# Try to import calculate_wavelength from core, fall back to local implementation
+# Try to import calculate_wavelength from online_wfs.core, fall back to local implementation
 try:
-    from core import calculate_wavelength
+    from online_wfs.core import calculate_wavelength
 except ImportError:
     from scipy import constants
 
@@ -20,8 +20,8 @@ except ImportError:
         return hc / photon_energy
 
 
-# Base data directory
-DATA_DIR = Path(__file__).parent.parent / "data"
+# Base data directory (package data in repo layout)
+DATA_DIR = Path(__file__).parent.parent / "online_wfs" / "data"
 
 
 def get_exp_params() -> dict:

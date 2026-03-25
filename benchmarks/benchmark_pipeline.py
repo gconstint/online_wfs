@@ -9,19 +9,15 @@ Usage:
     python benchmark_pipeline.py [--runs N] [--parallel] [--serial]
 """
 
-import sys
 from pathlib import Path
 import argparse
 import time
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import platform
 import numpy as np
 import scipy
 
-from pipeline import (
+from online_wfs.pipeline import (
     load_and_preprocess_image,
     extract_harmonics_and_dpc,
     apply_magnification_correction,
@@ -32,7 +28,7 @@ from pipeline import (
     analyze_focus_by_propagation,
     task,
 )
-from core import calculate_wavelength
+from online_wfs.core import calculate_wavelength
 
 
 def get_platform_info() -> dict:
@@ -116,7 +112,9 @@ def get_default_params() -> dict:
     )
 
     # Data Source Configuration
-    img_path = str(Path(__file__).parent.parent / "data" / "sample_exp.tif")
+    img_path = str(
+        Path(__file__).parent.parent / "online_wfs" / "data" / "sample_exp.tif"
+    )
     params.update(
         {
             "image_path": img_path,

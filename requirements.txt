@@ -6,6 +6,7 @@ scipy
 Pillow
 opencv-python
 scikit-image
+tifffile
 
 # Visualization
 matplotlib

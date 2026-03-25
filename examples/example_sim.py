@@ -6,14 +6,9 @@ Analyzes simulated XGI wavefront sensing data.
 Results saved to output/sim/.
 """
 
-import sys
 from pathlib import Path
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import numpy as np
-from core.utils import load_images
+from online_wfs.core import load_images
 from example_direct import analyze
 from params import get_sim_params
 
