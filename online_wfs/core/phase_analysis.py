@@ -132,8 +132,8 @@ def dpc_integration(dpc_x, dpc_y, ensure_concave=True):
     # 2. Remove DC component
     phase -= np.mean(phase)
 
-    # 3. Enforce shape constraint
-    if ensure_concave:
-        phase = _ensure_concave_shape(phase)
+    # # 3. Enforce shape constraint
+    # if ensure_concave:
+    #     phase = _ensure_concave_shape(phase)
 
     return phase

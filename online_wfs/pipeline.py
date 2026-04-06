@@ -33,7 +33,6 @@ from .core import (
     dpc_integration,
     perform_wavefront_fitting,
     two_steps_fresnel_method,
-    center_crop,
     image_correction,
     load_images,
     analyze_and_visualize_zernike,
@@ -46,10 +45,10 @@ from .core import (
 )
 
 # Constants
-DEFAULT_CROP_SIZE = 2048
+# DEFAULT_CROP_SIZE = 4096
 DEFAULT_LOWPASS_CUTOFF = 0.35
 # MIN_MAGNIFICATION = 1.0
-DEFAULT_ROTATION_ANGLE = 1.142  # Pre-computed rotation angle (degrees)
+# DEFAULT_ROTATION_ANGLE = 1.142  # Pre-computed rotation angle (degrees)
 
 
 def print_separator(
@@ -79,7 +78,7 @@ def load_and_preprocess_image(
     img: Optional[np.ndarray] = None,
     dark: Optional[np.ndarray] = None,
     flat: Optional[np.ndarray] = None,
-    crop_size: int = DEFAULT_CROP_SIZE,
+    # crop_size: int = DEFAULT_CROP_SIZE,
 ) -> np.ndarray:
     """
     Stage 1: Load images and perform preprocessing.
@@ -130,9 +129,10 @@ def load_and_preprocess_image(
     # Apply dark field subtraction and flat field correction
     img = image_correction(img, flat=flat, dark=dark, epsilon=1e-8, normalize=False)
 
-    # Center-crop to standard size
-    img_cropped = center_crop(img, target_size=crop_size)
-
+    # # Center-crop to standard size
+    # img_cropped = center_crop(img, target_size=crop_size)
+    # don't crop the image
+    img_cropped = img
     # Calculate theoretical harmonic periods
     harmonic_periods = calculate_harmonic_periods(
         (img_cropped.shape[0], img_cropped.shape[1]),
@@ -142,7 +142,7 @@ def load_and_preprocess_image(
     params["harmonic_periods"] = harmonic_periods
 
     # Image rotation correction to align peaks horizontally
-    if do_rotation:
+    if do_rotation is not None:
         if rotation_angle is not None:
             # Use pre-computed rotation angle (skip expensive FFT + peak finding)
             angle = rotation_angle
@@ -187,6 +187,7 @@ def load_and_preprocess_image(
         img32_rotated = np.asarray(img_cropped_rotated, dtype=np.float32, order="C")
         img_fft = fftshift(fft2(img32_rotated, norm="ortho", workers=cpu_count()))
     else:
+        # default
         # Compute FFT directly without rotation
         img32 = np.asarray(img_cropped, dtype=np.float32, order="C")
         img_fft = fftshift(fft2(img32, norm="ortho", workers=cpu_count()))
@@ -302,7 +303,7 @@ def reconstruct_phase(
     dpc_y: np.ndarray,
     virtual_pixel_size: Tuple[float, float],
     verbose: bool = True,
-    lowpass_cutoff: float = DEFAULT_LOWPASS_CUTOFF,
+    lowpass_cutoff: float = 0.35,
 ) -> np.ndarray:
     """
     Stage 4: Preprocess DPC and reconstruct phase using integration.
@@ -682,16 +683,16 @@ def analyze_focus_by_propagation(
 
 def task(
     params: dict,
-    verbose: bool = True,
-    show_plots: bool = True,
+    verbose: bool = False,   # default to False
+    show_plots: bool = False,    # default to False
     do_rotation: bool = False,
-    parallel: bool = True,
+    parallel: bool = True,  # default to True
     img: Optional[np.ndarray] = None,
     dark: Optional[np.ndarray] = None,
     flat: Optional[np.ndarray] = None,
-    crop_size: int = DEFAULT_CROP_SIZE,
+    # crop_size: int = DEFAULT_CROP_SIZE,
     rotation_angle: Optional[float] = None,
-    lowpass_cutoff: float = DEFAULT_LOWPASS_CUTOFF,
+    lowpass_cutoff: float = 0.35,
 ):
     """
     Execute the complete XGI wavefront reconstruction pipeline.
@@ -741,6 +742,17 @@ def task(
     """
     # If parallel mode is enabled, disable show_plots for thread safety
     effective_show_plots = show_plots if not parallel else False
+
+    if "rotation_angle" in params:
+        rotation_angle = params["rotation_angle"]
+    else:
+        rotation_angle = None
+        
+    if "lowpass_cutoff" in params:
+        lowpass_cutoff = params["lowpass_cutoff"]
+    else:
+        lowpass_cutoff = 0.35
+    
     # Stage 1: Image Loading and Preprocessing
     img_fft = load_and_preprocess_image(
         params,
@@ -750,7 +762,7 @@ def task(
         img=img,
         dark=dark,
         flat=flat,
-        crop_size=crop_size,
+        # crop_size=crop_size,
     )
 
     # Stage 2: Harmonic Extraction and DPC Calculation
@@ -781,7 +793,6 @@ def task(
     # Path 1: fit_wavefront -> analyze_aberrations (wavefront & aberration analysis)
     # Path 2: analyze_beam_at_detector -> analyze_focus_by_propagation (focus analysis)
     # =========================================================================
-
     if parallel:
         # =====================================================================
         # PARALLEL MODE: Two Independent Paths using ThreadPoolExecutor

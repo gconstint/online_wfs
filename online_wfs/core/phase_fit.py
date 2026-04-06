@@ -657,7 +657,7 @@ def perform_wavefront_fitting(
     wavelength,
     intensity=None,
     save_path=None,
-    find_center_first=False,
+    find_center_first=True,
     verbose=True,
     show_plots=True,
 ):
@@ -681,24 +681,23 @@ def perform_wavefront_fitting(
     # 1. Preprocess Phase (Masking, Outlier Removal)
     phase_processed = preprocess_phase_for_fitting(phase, intensity=intensity)
 
-    # # 2. Optional: Find center first
-    # if find_center_first:
-    #     if verbose:
-    #         print("\n>>>Finding wavefront center...")
-    #     x0_initial, y0_initial = find_wavefront_center(
-    #         phase_processed,
-    #         virtual_pixel_size,
-    #         verbose=verbose,
-    #     )
-    #     if verbose:
-    #         print(
-    #             f"  Initial center estimate: ({x0_initial * 1e6:.2f}, {y0_initial * 1e6:.2f}) μm"
-    #         )
-    #     fixed_center = (x0_initial, y0_initial)
-    # else:
-    #     fixed_center = None
-    # Default: do not use center point
-    fixed_center = None
+    # 2. Optional: Find center first
+    if find_center_first:
+        if verbose:
+            print("\n>>>Finding wavefront center...")
+        x0_initial, y0_initial = find_wavefront_center(
+            phase_processed,
+            virtual_pixel_size,
+            verbose=verbose,
+        )
+        if verbose:
+            print(
+                f"  Initial center estimate: ({x0_initial * 1e6:.2f}, {y0_initial * 1e6:.2f}) μm"
+            )
+        fixed_center = (x0_initial, y0_initial)
+    else:
+        fixed_center = None
+
     # 3. Fit with fixed or free center
     fit_params, fitted_phase, diagnostics = fit_parabolic_phase_fast(
         phase_processed, virtual_pixel_size, fixed_center=fixed_center, verbose=verbose
