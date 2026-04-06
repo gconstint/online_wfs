@@ -1,3 +1,4 @@
 from . import core
+from . import func
 
-__all__ = ["core"]
+__all__ = ["core", "func"]

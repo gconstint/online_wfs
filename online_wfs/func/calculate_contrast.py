@@ -343,7 +343,6 @@ if __name__ == "__main__":
     pixel_size = 3.25e-06
     g_period = 3.0e-6 / np.sqrt(2)
 
-    
     contrast = calculate_contrast(
         img,
         pixel_size,
