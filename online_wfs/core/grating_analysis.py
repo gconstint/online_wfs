@@ -4,7 +4,7 @@ from os import cpu_count
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
-from scipy.fft import ifft2, ifftshift
+from scipy.fft import dctn, idctn, ifft2, ifftshift
 from skimage.restoration import unwrap_phase
 from typing import Tuple, List, Dict, Optional, Union, Any
 
@@ -65,6 +65,47 @@ def extent_func(img, pixel_size=1):
     )
 
     return extent
+
+
+def _wrap(phase_diff: np.ndarray) -> np.ndarray:
+    """Wrap phase differences into the range [-pi, pi]."""
+    return np.arctan2(np.sin(phase_diff), np.cos(phase_diff))
+
+
+def dct_unwrap_phase(wrapped_phase: np.ndarray) -> np.ndarray:
+    """
+    Unwrap a 2D wrapped phase image by solving the Poisson equation via DCT.
+
+    The solution is defined up to an additive constant. The DC component is
+    fixed to zero and callers can apply their preferred offset convention.
+    """
+    ny, nx = wrapped_phase.shape
+
+    dx = _wrap(np.diff(wrapped_phase, axis=1))
+    dy = _wrap(np.diff(wrapped_phase, axis=0))
+
+    rho = np.zeros((ny, nx), dtype=np.float64)
+
+    rho[:, 1:-1] += dx[:, 1:] - dx[:, :-1]
+    rho[:, 0] += dx[:, 0]
+    rho[:, -1] -= dx[:, -1]
+
+    rho[1:-1, :] += dy[1:, :] - dy[:-1, :]
+    rho[0, :] += dy[0, :]
+    rho[-1, :] -= dy[-1, :]
+
+    rho_dct = dctn(rho, type=2, norm="ortho")
+
+    i_idx = np.arange(ny)
+    j_idx = np.arange(nx)
+    jj, ii = np.meshgrid(j_idx, i_idx)
+    denom = 2.0 * (np.cos(np.pi * ii / ny) + np.cos(np.pi * jj / nx) - 2.0)
+    denom[0, 0] = 1.0
+
+    phi_dct = rho_dct / denom
+    phi_dct[0, 0] = 0.0
+
+    return idctn(phi_dct, type=2, norm="ortho")
 
 
 def calculate_peak_index(
@@ -136,7 +177,7 @@ def _idxPeak_ij_exp(
     local_region = intensity[y1:y2, x1:x2]
     local_max = np.unravel_index(np.argmax(local_region), local_region.shape)
 
-    return [y1 + local_max[0], x1 + local_max[1]]
+    return [int(y1 + local_max[0]), int(x1 + local_max[1])]
 
 
 def _error_harmonic_peak(
@@ -223,7 +264,7 @@ def find_peak_in_region(
     local = intensity[y1:y2, x1:x2]
     local_max = np.unravel_index(np.argmax(local), local.shape)
 
-    return [y1 + local_max[0], x1 + local_max[1]]
+    return [int(y1 + local_max[0]), int(x1 + local_max[1])]
 
 
 def calculate_harmonic_periods(
@@ -381,7 +422,7 @@ def _plot_extraction(
 
     plt.figure(figsize=(10, 8))
     plt.imshow(
-        np.log10(np.abs(img_fft)), cmap="inferno", extent=extent_func(np.abs(img_fft))
+        np.log10(np.abs(img_fft)), cmap="inferno", extent=tuple(extent_func(np.abs(img_fft)))
     )
 
     # Mark theoretical peak position
@@ -579,8 +620,9 @@ def _plot_harmonic_spectra(fft00, fft01, fft10):
 def single_2D_grating_analyses(
     img_fft: np.ndarray,
     img_ref_fft: Optional[np.ndarray] = None,
-    harmonic_period: Optional[List[float]] = None,
+    harmonic_period: List[float] = [0,0],
     unwrap_flag: bool = True,
+    dct_flag: bool = True,
     plot_flag: bool = True,
     verbose: bool = False,
 ) -> Tuple[
@@ -594,6 +636,8 @@ def single_2D_grating_analyses(
         img_ref_fft (Optional[np.ndarray]): Reference image spectrum.
         harmonic_period (List[float]): Harmonic periods [period_vert, period_hor].
         unwrap_flag (bool): Whether to unwrap phase.
+        dct_flag (bool): If True, use DCT-based least-squares unwrapping.
+            If False, fall back to skimage.unwrap_phase.
         plot_flag (bool): Whether to plot results.
         verbose (bool): Detailed logging.
 
@@ -632,8 +676,16 @@ def single_2D_grating_analyses(
 
     # 3. Phase Unwrapping
     if unwrap_flag:
-        arg01 = unwrap_phase(phase01)
-        arg10 = unwrap_phase(phase10)
+        if dct_flag:
+            if verbose:
+                print("MESSAGE: Using DCT-based phase unwrapping")
+            arg01 = dct_unwrap_phase(phase01)
+            arg10 = dct_unwrap_phase(phase10)
+        else:
+            if verbose:
+                print("MESSAGE: Using skimage phase unwrapping")
+            arg01 = unwrap_phase(phase01)
+            arg10 = unwrap_phase(phase10)
     else:
         arg01, arg10 = phase01, phase10
 
