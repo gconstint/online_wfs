@@ -683,8 +683,8 @@ def analyze_focus_by_propagation(
 
 def task(
     params: dict,
-    verbose: bool = False,   # default to False
-    show_plots: bool = False,    # default to False
+    verbose: bool = False,  # default to False
+    show_plots: bool = False,  # default to False
     do_rotation: bool = False,
     parallel: bool = True,  # default to True
     img: Optional[np.ndarray] = None,
@@ -747,12 +747,12 @@ def task(
         rotation_angle = params["rotation_angle"]
     else:
         rotation_angle = None
-        
+
     if "lowpass_cutoff" in params:
         lowpass_cutoff = params["lowpass_cutoff"]
     else:
         lowpass_cutoff = 0.35
-    
+
     # Stage 1: Image Loading and Preprocessing
     img_fft = load_and_preprocess_image(
         params,
@@ -933,12 +933,14 @@ def task(
     yield (
         "checkpoint_wavefront",
         {
-            "phase": phase,
-            "fitted_phase": fitted_phase,
-            "phase_error": phase_error,
-            "fit_params": fit_params,
-            "virtual_pixel_size": virtual_pixel_size,
-            "wavelength": params["wavelength"],
+            "dpc_x": dpc_x,  # np.array
+            "dpc_y": dpc_y,  # np.array
+            "phase": phase,  # np.array
+            "fitted_phase": fitted_phase,  # ignored
+            "phase_error": phase_error,  # np.array
+            "fit_params": fit_params,  # ignored
+            "virtual_pixel_size": virtual_pixel_size,  # ignored
+            "wavelength": params["wavelength"],  # ignored
         },
     )
 
@@ -946,12 +948,12 @@ def task(
     yield (
         "checkpoint_aberration",
         {
-            "calibration_result": aberration_result["calibration_result"],
+            "calibration_result": aberration_result["calibration_result"],  # ignored
             "zernike_results": aberration_result["zernike_results"],
-            "roi_result": aberration_result["roi_result"],
-            "phase_error": phase_error,
-            "wavelength": params["wavelength"],
-            "virtual_pixel_size": virtual_pixel_size,
+            "roi_result": aberration_result["roi_result"],  # ignored
+            "phase_error": phase_error,  # ignored
+            "wavelength": params["wavelength"],  # ignored
+            "virtual_pixel_size": virtual_pixel_size,  # ignored
         },
     )
 
@@ -969,13 +971,16 @@ def task(
     yield (
         "checkpoint_focus",
         {
+            "beam_det": int00,  # intensity at detector plane
+            "beam_focus": np.abs(focus_result["focus_field"])
+            ** 2,  # intensity at focus plane
             "beam_position": beam_position,
             "beam_size": beam_size,
             "focus_position": focus_result["focus_position"],
             "focus_size": focus_result["focus_size"],
-            "focus_field": focus_result["focus_field"],
-            "dx_focus": focus_result["dx_focus"],
-            "dy_focus": focus_result["dy_focus"],
+            # "focus_field": focus_result["focus_field"],
+            "dx_focus": focus_result["dx_focus"],  # ignored
+            "dy_focus": focus_result["dy_focus"],  # ignored
         },
     )
 
