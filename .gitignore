@@ -56,3 +56,6 @@ output
 .worktrees/
 
 *.prof
+
+.claude
+.pytest_cache/

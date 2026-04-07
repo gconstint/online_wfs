@@ -9,7 +9,7 @@ def main():
     """
 
     # STEP 0: load parameters from config file
-    params = load_quick_config("examples/param.json")
+    params = load_quick_config("examples/params.json")
 
     # STEP 1: Run the pipeline
     for checkpoint_name, _ in task(

@@ -93,16 +93,14 @@ def calculate_spherical_wave_talbot_distance(
     return z_t
 
 
-def main():
-    """Calculate and print Talbot distances using default parameters."""
-    # --- Parameters (same as phase_talbot_distance.py) ---
-    energy_ev = 9000  # Photon energy: 8 keV
-    grating_period = 30e-6 / np.sqrt(2)  # Grating period: ~2.12 μm
-    wavelength = calculate_wavelength(energy_ev)
-    eta = 1.0  # 1 if π/2 phase grating, 2 if π phase grating
-    r1 = 100  # Source-grating distance: 15 mm
-    talbot_orders = range(1, 10, 2)  # Odd orders: 1, 3, 5, ..., 29
-
+def print_infos(
+    energy_ev: float,
+    wavelength: float,
+    grating_period: float,
+    eta: float,
+    r1: float,
+) -> None:
+    """Print input parameters and table header for Talbot distance results."""
     print("=" * 65)
     print("Talbot Distance Calculation")
     print("=" * 65)
@@ -115,17 +113,20 @@ def main():
     print(f"\n{'Order':<8} {'Z_T0 (mm)':<18} {'Z_T (mm)':<18} {'R2 (mm)':<15}")
     print("-" * 65)
 
+
+def print_talbot_distance(
+    grating_period: float,
+    wavelength: float,
+    eta: float,
+    source_dist: float,
+    talbot_orders,
+) -> None:
+    """Print Talbot distance results for each order."""
     for n in talbot_orders:
         z_t0 = calculate_plane_wave_talbot_distance(grating_period, wavelength, eta, n)
         try:
-            z_t = calculate_spherical_wave_talbot_distance(r1, z_t0)
-            r2 = r1 + z_t
+            z_t = calculate_spherical_wave_talbot_distance(source_dist, z_t0)
+            r2 = source_dist + z_t
             print(f"n={n:<6} {z_t0 * 1e3:<18.6f} {z_t * 1e3:<18.6f} {r2 * 1e3:<15.6f}")
         except ValueError:
             print(f"n={n:<6} {z_t0 * 1e3:<18.6f} {'N/A':<18} {'N/A':<15}  (R1 <= Z_T0)")
-
-    print("=" * 65)
-
-
-if __name__ == "__main__":
-    main()

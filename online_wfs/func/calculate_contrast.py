@@ -1,16 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
-from numpy.fft import fft2, fftshift, ifft2, ifftshift
-from matplotlib.patches import Rectangle
-
-MIN_VALUE = 1e-10
-
-
-def extent_func(img):
-    """Calculate extent for imshow with centered coordinates."""
-    rows, cols = img.shape
-    return (-cols // 2, cols // 2, -rows // 2, rows // 2)
+from numpy.fft import fft2, fftshift
 
 
 def calculate_harmonic_periods(img_shape, pixel_size, pattern_period):
@@ -23,7 +14,7 @@ def calculate_harmonic_periods(img_shape, pixel_size, pattern_period):
     # hor_harm += (hor_harm % 2) + 1
     # # print("vert_harm", vert_harm)
     # # print("hor_harm", hor_harm)
-    # print("Theoretical harmonic periods(H/V):", (hor_harm, vert_harm))
+
     return [vert_harm, hor_harm]
 
 
@@ -31,7 +22,7 @@ def calculate_peak_index(har_v, har_h, n_rows, n_columns, period_vert, period_ho
     """
     Calculate the theoretical peak index(in pixel) for harmonic [har_v, har_h].
     Explain:
-    1. n_rows // 2 and n_columns // 2 represent the center of the image.
+    1. ``n_rows // 2`` and ``n_columns // 2`` represent the image center.
     2. har_v, har_h is the harmonic index or the order of the harmonic.
     For instance, har_v = 1,har_v = 0 means the first harmonic in the vertical direction, and the zeroth harmonic in the
     horizontal direction.
@@ -70,288 +61,139 @@ def find_peak_in_region(img_fft, theoretical_idx, search_region):
 
 
 def calculate_contrast(
-    img,
-    pixel_size,
-    g_period,
-    source_dist,
-    det2sample,
-    search_region=None,
-    use_theoretical_peak=True,
-    plot_flag=False,
-    save_path=None,
-    verbose=False,
-):
+    img: np.ndarray,
+    pixel_size: list[float],
+    g_period: float,
+    source_dist: float,
+    det2sample: float,
+    search_region: int | list[int] | None = None,
+    plot_flag: bool = False,
+) -> float:
     """
-    Calculate the peak positions of the 00, 01, and 10 harmonics, and use them
-    to compute accurate harmonic periods.
+    Locate the 00 and 01 harmonic peaks and compute the grating fringe contrast.
 
     Args:
         img (ndarray): Input image.
-        initial_period (list, optional): Initial harmonic period estimate
-            [period_vert, period_hor]. If None, it is detected automatically.
-        search_region (int/list): Peak search region size. It can be an integer
-            or [vertical_search_range, horizontal_search_range].
+        pixel_size (list[float]): Detector pixel size [vert, hor] in meters (m).
+        g_period (float): Grating period in meters (m).
+        source_dist (float): Source-to-grating distance in meters (m).
+        det2sample (float): Detector-to-sample distance in meters (m).
+        search_region (int or list[int], optional): Peak-search region size,
+            either an integer or ``[vertical_range, horizontal_range]``.
         plot_flag (bool): Whether to display the visualization.
-        save_path (str, optional): Path to save the visualization.
 
     Returns:
-        tuple: (
-            accurate_period: [period_vert, period_hor], the accurate harmonic period,
-            peak_positions: {'00': [y0, x0], '01': [y01, x01], '10': [y10, x10]},
-            the peak positions of each harmonic
-        )
+        float: Visibility/contrast value of the grating fringes.
     """
-    # TODO: Convert parameters
+    # TODO: normalize the input parameter conventions
     pattern_period = g_period * (det2sample + source_dist) / source_dist
-    pixel_size = [pixel_size, pixel_size]
+    # pixel_size = [pixel_size, pixel_size]
     init_periods = calculate_harmonic_periods(img.shape, pixel_size, pattern_period)
 
-    # 1. Apply Window Function to reduce spectral leakage
+    # 1. Compute the image FFT
     n_rows, n_columns = img.shape
-
-    # Apply circular Gaussian window to reduce spectral leakage
-    y_coords = np.linspace(-1, 1, n_rows)
-    x_coords = np.linspace(-1, 1, n_columns)
-    xx, yy = np.meshgrid(x_coords, y_coords)
-    r = np.sqrt(xx**2 + yy**2)
-    sigma = 0.5  # Gaussian sigma (controls window width)
-    window_2d = np.exp(-(r**2) / (2 * sigma**2))
-
-    # Apply window to image
-    img_windowed = img * window_2d
-
-    # 2. Calculate FFT
-    img_fft = fftshift(fft2(img_windowed, norm="ortho"))
+    img_fft = fftshift(fft2(img, norm="ortho"))
 
     period_vert, period_hor = init_periods
 
-    # Set the search region
+    # Configure the search region
     if search_region is None:
-        search_region = [max(10, int(min(period_vert, period_hor) // 4))] * 2
+        search_region = [max(10, int(min(period_vert, period_hor) // 2))] * 2
     elif isinstance(search_region, int):
         search_region = [search_region] * 2
 
-    # 3. Calculate theoretical peak positions for contrast calculation
-    theoretical_peak_positions = {}
+    # 3. Locate the three harmonic peaks accurately
+    peak_positions = {}
 
-    # 3.1 Calculate the theoretical position of the 00 harmonic (center peak)
+    # 3.1 00 harmonic (center peak)
     idx_peak_00 = calculate_peak_index(0, 0, n_rows, n_columns, period_vert, period_hor)
-    theoretical_peak_positions["00"] = [int(idx_peak_00[0]), int(idx_peak_00[1])]
+    peak_00 = find_peak_in_region(img_fft, idx_peak_00, search_region)
+    peak_positions["00"] = peak_00
 
-    # 3.2 Calculate the theoretical position of the 01 harmonic (first horizontal harmonic)
+    # 3.2 01 harmonic (first horizontal harmonic)
     idx_peak_01 = calculate_peak_index(0, 1, n_rows, n_columns, period_vert, period_hor)
-    theoretical_peak_positions["01"] = [int(idx_peak_01[0]), int(idx_peak_01[1])]
+    peak_01 = find_peak_in_region(img_fft, idx_peak_01, search_region)
+    peak_positions["01"] = peak_01
 
-    # 3.3 Calculate the theoretical position of the 10 harmonic (first vertical harmonic)
+    # 3.3 10 harmonic (first vertical harmonic)
     idx_peak_10 = calculate_peak_index(1, 0, n_rows, n_columns, period_vert, period_hor)
-    theoretical_peak_positions["10"] = [int(idx_peak_10[0]), int(idx_peak_10[1])]
+    peak_10 = find_peak_in_region(img_fft, idx_peak_10, search_region)
+    peak_positions["10"] = peak_10
 
-    # 4. Find experimental peak positions for validation and visualization
-    experimental_peak_positions = {}
-    peak_00_exp = find_peak_in_region(img_fft, idx_peak_00, search_region)
-    experimental_peak_positions["00"] = peak_00_exp
+    # 4. Compute the harmonic periods from the peak positions
+    # Horizontal period = horizontal distance between the 01 and 00 peaks
+    exp_period_h = abs(peak_01[1] - peak_00[1])
+    # Vertical period = vertical distance between the 10 and 00 peaks
+    exp_period_v = abs(peak_10[0] - peak_00[0])
+    # TODO: Decide whether to use peak-to-peak distances or the theoretical
+    # harmonic period after localizing the harmonic peaks.
+    # exp_period_v = init_periods[1]
+    # exp_period_h = init_periods[0]
 
-    peak_01_exp = find_peak_in_region(img_fft, idx_peak_01, search_region)
-    experimental_peak_positions["01"] = peak_01_exp
-
-    peak_10_exp = find_peak_in_region(img_fft, idx_peak_10, search_region)
-    experimental_peak_positions["10"] = peak_10_exp
-
-    # 6. Extract harmonic region and calculate spatial intensity
-    def extract_harmonic_region_intensity(fft_data, peak_pos, period_vert, period_hor):
-        """
-        Extract harmonic region, perform IFFT, and calculate mean spatial intensity.
-
-        Args:
-            fft_data: FFT spectrum data
-            peak_pos: Peak position [y, x]
-            period_vert: Vertical harmonic period (pixels)
-            period_hor: Horizontal harmonic period (pixels)
-
-        Returns:
-            Mean intensity (amplitude) in spatial domain
-        """
-        y_peak, x_peak = peak_pos
-
-        # Determine window size (half of harmonic period)
-        half_window_vert = int(period_vert // 2)
-        half_window_hor = int(period_hor // 2)
-
-        # Calculate region boundaries
-        n_rows, n_columns = fft_data.shape
-        y_start = max(0, y_peak - half_window_vert)
-        y_end = min(n_rows, y_peak + half_window_vert)
-        x_start = max(0, x_peak - half_window_hor)
-        x_end = min(n_columns, x_peak + half_window_hor)
-
-        # Extract region
-        region = fft_data[y_start:y_end, x_start:x_end]
-
-        # IFFT to spatial domain
-        # Use ifftshift to move the centered peak to the origin (0,0) before IFFT
-        spatial_domain = ifft2(ifftshift(region))
-
-        # Calculate mean intensity (amplitude)
-        # Note: This corresponds to the amplitude of the harmonic component
-        mean_intensity = np.mean(np.abs(spatial_domain))
-
-        return mean_intensity
-
-    # Select theoretical or experimental peak positions based on the parameter
-    if use_theoretical_peak:
-        peak_positions_for_contrast = theoretical_peak_positions
-        peak_type = "Theoretical"
-    else:
-        peak_positions_for_contrast = {
-            "00": experimental_peak_positions["00"],
-            "01": experimental_peak_positions["01"],
-            "10": experimental_peak_positions["10"],
-        }
-        peak_type = "Experimental"
-
-    # Extract harmonic region intensity using the selected peak positions and theoretical periods
-    I_00 = extract_harmonic_region_intensity(
-        img_fft, peak_positions_for_contrast["00"], period_vert, period_hor
+    # Compute self-imaging contrast using the harmonic peak values
+    contrast01 = (
+        2
+        * np.abs(img_fft[peak_01[0], peak_01[1]])
+        / np.abs(img_fft[peak_00[0], peak_00[1]])
     )
-    I_01 = extract_harmonic_region_intensity(
-        img_fft, peak_positions_for_contrast["01"], period_vert, period_hor
+    contrast10 = (
+        2
+        * np.abs(img_fft[peak_10[0], peak_10[1]])
+        / np.abs(img_fft[peak_00[0], peak_00[1]])
     )
-    I_10 = extract_harmonic_region_intensity(
-        img_fft, peak_positions_for_contrast["10"], period_vert, period_hor
-    )
-
-    # Calculate contrast
-    contrast01 = 2 * I_01 / I_00
-    contrast10 = 2 * I_10 / I_00
     contrast = (contrast01 + contrast10) / 2
+    print("contrast01:", contrast01)
+    print("contrast10:", contrast10)
+    print("contrast:", contrast)
 
-    # Calculate harmonic region boundaries (fixed size for all harmonics)
-    half_window_vert = int(period_vert // 2)
-    half_window_hor = int(period_hor // 2)
-
-    # 7. Visualization (Plot harmonic regions with rectangles)
+    # 5. Visualize the result
     if plot_flag:
-        fig, ax = plt.subplots(figsize=(12, 10))
+        plt.figure(figsize=(10, 8))
+        plt.imshow(np.log10(np.abs(img_fft)), cmap="inferno")
 
-        # Plot FFT spectrum
-        im = ax.imshow(
-            np.log10(np.abs(img_fft) + MIN_VALUE),
-            cmap="inferno",
-            interpolation="nearest",
-            extent=extent_func(img_fft),
+        # Mark the 00 peak
+        plt.scatter(
+            peak_00[1], peak_00[0], color="white", marker="+", s=150, label="00 Peak"
         )
 
-        # Define colors for different harmonics
-        colors = {"00": "white", "01": "cyan", "10": "yellow"}
-
-        # Loop through harmonics to plot regions and peaks
-        for harmonic in ["00", "01", "10"]:
-            peak_pos = peak_positions_for_contrast[harmonic]
-            y_peak, x_peak = int(peak_pos[0]), int(peak_pos[1])
-
-            y_start = max(0, y_peak - half_window_vert)
-            y_end = min(n_rows, y_peak + half_window_vert)
-            x_start = max(0, x_peak - half_window_hor)
-            x_end = min(n_columns, x_peak + half_window_hor)
-
-            # Draw harmonic extraction region rectangle
-            rect_width = x_end - x_start
-            rect_height = y_end - y_start
-
-            # Convert to centered coordinates for plotting
-            rect_x = x_start - n_columns // 2
-            rect_y = n_rows // 2 - y_end
-
-            rect = Rectangle(
-                (rect_x, rect_y),
-                rect_width,
-                rect_height,
-                linewidth=2,
-                edgecolor=colors[harmonic],
-                facecolor="none",
-                linestyle="--",
-                label=f"Region {harmonic}",
-            )
-            ax.add_patch(rect)
-
-            # Mark peak position
-            ax.scatter(
-                x_peak - n_columns // 2,
-                n_rows // 2 - y_peak,
-                color=colors[harmonic],
-                marker="x",
-                s=150,
-                linewidths=2,
-                label=f"Peak {harmonic}",
-            )
-
-        ax.set_title(
-            f"Harmonic Analysis | Peak Type: {peak_type} | Contrast = {contrast:.4f}",
-            fontsize=14,
-            weight="bold",
-        )
-        ax.set_xlabel("Horizontal [pixels]")
-        ax.set_ylabel("Vertical [pixels]")
-        ax.legend(loc="upper right", fontsize=10, framealpha=0.8)
-        ax.grid(True, alpha=0.3)
-
-        # Add colorbar
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04).set_label(
-            "Log10 Magnitude", rotation=270, labelpad=20
+        # Mark the 01 peak
+        plt.scatter(
+            peak_01[1], peak_01[0], color="cyan", marker="+", s=150, label="01 Peak"
         )
 
-        plt.tight_layout()
+        # Mark the 10 peak
+        plt.scatter(
+            peak_10[1], peak_10[0], color="yellow", marker="+", s=150, label="10 Peak"
+        )
 
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches="tight")
-            if verbose:
-                print(f"Contrast analysis plot saved to {save_path}")
+        # Connecting lines
+        plt.plot(
+            [peak_00[1], peak_01[1]],
+            [peak_00[0], peak_01[0]],
+            "c--",
+            alpha=0.7,
+            label=f"Horizontal Period: {exp_period_h:.2f}",
+        )
 
+        plt.plot(
+            [peak_00[1], peak_10[1]],
+            [peak_00[0], peak_10[0]],
+            "y--",
+            alpha=0.7,
+            label=f"Vertical Period: {exp_period_v:.2f}",
+        )
+
+        plt.title("Harmonic Peaks and Accurate Periods")
+        plt.colorbar(label="Log10 Magnitude")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
         plt.show()
 
-    # 8. Print detailed information
-    if verbose:
-        print("\n" + "=" * 70)
-        print(f"Peak Type Used for Contrast Calculation: {peak_type}")
-        print("\nSelected Peak Positions:")
-        for h in ["00", "01", "10"]:
-            print(f"  {h}: {peak_positions_for_contrast[h]}")
-
-        print(
-            f"\nTheoretical Harmonic Periods (H/V): ({period_hor:.2f}, {period_vert:.2f}) pixels"
-        )
-        print(
-            f"Harmonic Extraction Region Size: {half_window_vert * 2} x {half_window_hor * 2} pixels"
-        )
-        print("\nContrast Results:")
-        print(f"  Contrast (01): {contrast01:.4f}")
-        print(f"  Contrast (10): {contrast10:.4f}")
-        print(f"  Average Contrast: {contrast:.4f}")
-        print("=" * 70 + "\n")
+        # Print summary information
+        print(f"00 Peak position: {peak_00}")
+        print(f"01 Peak position: {peak_01}")
+        print(f"10 Peak position: {peak_10}")
+        print(f"Accurate horizontal period: {exp_period_h:.2f} pixels")
+        print(f"Accurate vertical period: {exp_period_v:.2f} pixels")
 
     return contrast
-
-
-if __name__ == "__main__":
-    image_path = "/Users/guanzhh/Vscode_worksapce/wavefront-sim/result/20251201/zernike_aberration_scan/labels/j6_c0.tif"
-    img = Image.open(image_path)
-    img = np.array(img).astype(np.uint16)
-
-    det2source = 0.465
-    source_dist = 0.0129
-    det2sample = det2source - source_dist
-    pixel_size = 3.25e-06
-    g_period = 3.0e-6 / np.sqrt(2)
-
-    contrast = calculate_contrast(
-        img,
-        pixel_size,
-        g_period,
-        source_dist,
-        det2sample,
-        search_region=None,
-        plot_flag=True,
-        save_path=None,
-        verbose=True,
-    )
-    print(contrast)

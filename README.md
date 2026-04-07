@@ -1,114 +1,94 @@
-# X-ray Grating Interferometry (XGI) Wavefront Sensor
+# online_wfs
 
-A comprehensive data analysis pipeline for X-ray beam characterization using grating interferometry techniques.
+X-ray Grating Interferometry (XGI) wavefront sensing pipeline.
 
-## Overview
-
-This project provides a complete and robust data analysis pipeline for X-ray Grating Interferometry (XGI) wavefront sensing. It is designed for high-performance, real-time analysis of X-ray beam wavefronts, supporting both single-frame analysis and continuous streaming modes. The pipeline is implemented in Python with optimized numerical algorithms and multi-threading capabilities.
-
-## Key Features
-
-*   **Real-time Capabilities:**
-    *   **Streaming Runner (`runner.py`):** A dedicated runner for continuous data acquisition and processing.
-    *   **Three-Stage Architecture:** Decoupled Data Reading, Processing, and Saving for maximum throughput.
-    *   **Async Saving:** Non-blocking I/O operations for saving complex result sets.
-*   **Advanced Analysis:**
-    *   **Wavefront Reconstruction:** DPC-based phase retrieval with Frankot-Chellappa integration.
-    *   **Zernike Decomposition:** Full Zernike polynomial fitting (up to 36 terms) for aberration analysis.
-    *   **Focus Characterization:** Numerical propagation to focus, spot size (FWHM) measurement, and intensity profiling.
-    *   **Beam Profiling:** 2D Gaussian fitting and statistical beam analysis.
-*   **Dual Mode:** Seamlessly switch between Experimental data and Simulation modes.
-
-## Quick Start (Streaming Mode)
-
-The core feature of this project is the streaming runner, which simulates a continuous data acquisition pipeline.
-
-**Run the streaming pipeline:**
+## Installation
 
 ```bash
-# Default mode (10Hz, infinite loop)
-python -m online_wfs.runner
-
-# Or, if installed via pip:
-online-wfs-runner
-
-# High-speed mode (20Hz)
-python -m online_wfs.runner --fps 20
-
-# Run for a specific duration (e.g., 60 seconds)
-python -m online_wfs.runner --duration 60
+pip install .
 ```
 
-**Output Structure:**
-Results are saved in `output/stream/frame_XXXXXX/`:
+For development:
 
-*   `phase.npy`: Reconstructed phase map
-*   `focus_field.npy`: Complex field at the focal plane
-*   `zernike_results.txt`: Zernike coefficients and RMS error
-*   `params.txt`: Comprehensive parameter file (Wavefront, Calibration, ROI, Focus metadata)
+```bash
+pip install -e .
+```
+
+## Quick Start
+
+All examples load parameters from a JSON config file:
+
+```bash
+# Run the full analysis pipeline
+python examples/example_pipeline.py
+
+# Calculate Talbot distances
+python examples/example_talbot_distance.py
+
+# Calculate grating contrast
+python examples/example_contrast.py
+```
+
+## Configuration
+
+Edit `examples/params.json` before running:
+
+```json
+{
+    "p_energy": 9000,
+    "pixel_size": 0.48e-6,
+    "det2sample": 0.65,
+    "source_dist": 100.0,
+    "g_period": 18.38e-6,
+    "g_angle": 45,
+    "image_path": "data/sample.tif",
+    "dark_image_path": null,
+    "flat_image_path": null,
+    "rotation_angle": null,
+    "lowpass_cutoff": 0.35,
+    "parallel": true,
+    "verbose": false,
+    "show_plots": false
+}
+```
+
+Key parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `p_energy` | Photon energy (eV) |
+| `pixel_size` | Detector pixel size (m) |
+| `det2sample` | Detector-to-sample distance (m) |
+| `source_dist` | Source-to-grating distance (m) |
+| `g_period` | Grating period (m) |
+| `g_angle` | Grating rotation angle (degrees) |
+| `image_path` | Path to input image |
 
 ## Project Structure
 
 ```
-.
-├── online_wfs/
-│   ├── runner.py                   # Main Entry Point: Streaming Pipeline Runner
-│   ├── pipeline.py                 # Core XGI Analysis Pipeline (8-stage workflow)
-│   ├── params.py                   # Configuration Management
-│   ├── core/                       # Analysis Kernels
-│   │   ├── phase_analysis.py       # Phase reconstruction & DPC
-│   │   ├── zernike_analysis.py     # Zernike fitting
-│   │   ├── propagation.py          # Wavefront propagation
-│   │   ├── grating_analysis.py     # Interferogram analysis
-│   │   └── ...
-│   └── data/                       # Sample Data (packaged)
-│       └── sample_exp.tif          # Default experimental sample
-├── examples/
-├── benchmarks/
-└── output/                         # Analysis Results directory
+online_wfs/
+├── pipeline.py        # Main analysis pipeline
+├── config.py          # Configuration loader
+├── core/              # Analysis modules
+│   ├── phase_analysis.py
+│   ├── grating_analysis.py
+│   ├── zernike_analysis.py
+│   ├── propagation.py
+│   └── ...
+└── func/              # Utility functions
+    ├── calculate_contrast.py
+    └── calculate_talbot_distance.py
+examples/
+├── params.json            # Config file
+├── example_pipeline.py
+├── example_contrast.py
+└── example_talbot_distance.py
 ```
-
-## Architecture
-
-The system utilizes a balanced generic pipeline architecture:
-
-1.  **Stage 1: Data Reader (Thread)**
-    *   Simulates/Acquires frames at target FPS.
-    *   Implements frame dropping policy to maintain real-time constraints.
-
-2.  **Stage 2: Processor (Main)**
-    *   Executes the 8-stage XGI pipeline.
-    *   Performs FFTs, phase unwrapping, and fitting.
-
-3.  **Stage 3: Saver (Thread)**
-    *   Asynchronously writes results to disk.
-    *   Handles data formatting (NPY/TXT).
-
-## Installation
-
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/your-org/online_wfs.git
-    cd online_wfs
-    ```
-
-2.  **Install the package:**
-    ```bash
-    pip install .
-    ```
-
-    For editable installs during development:
-    ```bash
-    pip install -e .
-    ```
 
 ## Dependencies
 
--   **numpy, scipy**: Core numerical computing
--   **matplotlib**: Visualization (optional for headless runner)
--   **Pillow, opencv-python**: Image I/O and processing
--   **scikit-image**: Advanced image algorithms
-
-## License
-
-This project is open source. See the LICENSE file for details.
+- numpy, scipy
+- matplotlib
+- Pillow, opencv-python
+- scikit-image
