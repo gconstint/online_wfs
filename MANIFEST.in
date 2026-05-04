@@ -1,2 +1,1 @@
 include README.md
-recursive-include online_wfs/data *.tif
