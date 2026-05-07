@@ -48,32 +48,6 @@ def _crop_to_central_quarter(array):
     return array[: h // 2, : w // 2]
 
 
-def _ensure_concave_shape(phase):
-    """
-    Force phase to concave-up (bowl) shape.
-    Determines curvature direction by parabolic fitting of center cross-sections.
-    """
-    H, W = phase.shape
-
-    # Extract center row and center column
-    mid_row = phase[H // 2, :]
-    mid_col = phase[:, W // 2]
-
-    # Use polyfit for fast quadratic fitting (y = ax^2 + bx + c)
-    # Only the quadratic coefficient 'a' matters
-    x = np.arange(W)
-    y = np.arange(H)
-
-    coeff_x = np.polyfit(x, mid_row, 2)
-    coeff_y = np.polyfit(y, mid_col, 2)
-
-    # Combined check: if sum of curvatures in both directions < 0, flip required
-    if (coeff_x[0] + coeff_y[0]) < 0:
-        return -phase
-
-    return phase
-
-
 def fc_method(delta_x, delta_y, reflected_pad=True):
     """
     Frankot-Chellappa integration algorithm (optimized version).
@@ -114,7 +88,7 @@ def fc_method(delta_x, delta_y, reflected_pad=True):
     return phase_2D
 
 
-def dpc_integration(dpc_x, dpc_y, ensure_concave=True):
+def dpc_integration(dpc_x, dpc_y):
     """
     DPC integration main function.
 
@@ -132,8 +106,18 @@ def dpc_integration(dpc_x, dpc_y, ensure_concave=True):
     # 2. Remove DC component
     phase -= np.mean(phase)
 
-    # # 3. Enforce shape constraint
-    # if ensure_concave:
-    #     phase = _ensure_concave_shape(phase)
-
     return phase
+
+
+def reconstruct_phase(dpc_x_fc, dpc_y_fc):
+    """
+    Reconstruct phase from pixel-coordinate DPC gradients using Frankot-Chellappa.
+
+    Args:
+        dpc_x_fc: Horizontal phase gradient [rad/pixel].
+        dpc_y_fc: Vertical phase gradient [rad/pixel].
+
+    Returns:
+        Reconstructed phase [rad].
+    """
+    return dpc_integration(dpc_x_fc, dpc_y_fc)

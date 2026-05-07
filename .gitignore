@@ -59,3 +59,4 @@ output
 
 .claude
 .pytest_cache/
+tests

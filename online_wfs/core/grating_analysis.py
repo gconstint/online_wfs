@@ -281,8 +281,8 @@ def calculate_harmonic_periods(
     Returns:
         List[float]: Harmonic periods [period_vert, period_hor] in pixels.
     """
-    vert_harm = (pixel_size[0] * img_shape[0]) / pattern_period + 1
-    hor_harm = (pixel_size[1] * img_shape[1]) / pattern_period + 1
+    vert_harm = (pixel_size[0] * img_shape[0]) / pattern_period
+    hor_harm = (pixel_size[1] * img_shape[1]) / pattern_period
     return [vert_harm, hor_harm]
 
 
@@ -325,38 +325,11 @@ def extract_harmonic(
     har_v, har_h = int(harmonic_ij[0]), int(harmonic_ij[1])
     period_vert, period_hor = harmonic_period
 
-    if verbose:
-        print(f"MESSAGE: Extracting harmonic {harmonic_ij}")
-        print(f"MESSAGE: Harmonic period Horizontal: {int(period_hor)} pixels")
-        print(f"MESSAGE: Harmonic period Vertical: {int(period_vert)} pixels")
-
+  
     # 1. Get theoretical peak position
     idx_peak_ij = calculate_peak_index(
         har_v, har_h, n_rows, n_columns, period_vert, period_hor
     )
-
-    # 2. Calculate peak position error only when needed (verbose mode or experimental peak)
-    # This saves computation when using theoretical peaks in non-verbose mode
-    if verbose or not use_theoretical_peak:
-        del_i, del_j = _error_harmonic_peak(
-            img_fft, har_v, har_h, period_vert, period_hor, search_region
-        )
-
-        if verbose:
-            print(
-                f"MESSAGE: Theoretical peak index: {idx_peak_ij[0]},{idx_peak_ij[1]} [VxH]"
-            )
-            print(
-                f"MESSAGE: Harmonic peak {harmonic_ij} is misplaced by: "
-                f"{del_i} pixels in vertical, {del_j} pixels in horizontal"
-            )
-
-        # Warn if peak is far from theoretical position (WavePy compatibility)
-        if (np.abs(del_i) > search_region // 2) or (np.abs(del_j) > search_region // 2):
-            print(
-                f"ATTENTION: Harmonic Peak {harmonic_ij} is too far from theoretical value.\n"
-                f"ATTENTION: {del_i} pixels in vertical, {del_j} pixels in horizontal"
-            )
 
     # 3. Determine extraction window size
     half_window_vert = int(period_vert // 2)
@@ -515,36 +488,6 @@ def accurate_harmonic_periods(
     exp_period_v = abs(peak_positions["10"][0] - peak_positions["00"][0])
 
     return [exp_period_v, exp_period_h], peak_positions
-
-
-def calculate_rotation_angle_from_peaks(peak_positions: Dict[str, List[int]]) -> float:
-    """
-    Calculate the rotation angle to align grating axes based on harmonic peak positions.
-
-    Args:
-        peak_positions (Dict): Peak positions {'00', '01', '10'}.
-
-    Returns:
-        float: Rotation angle in degrees.
-    """
-    peak_00 = peak_positions["00"]
-    peak_01 = peak_positions["01"]
-    peak_10 = peak_positions["10"]
-
-    # Horizontal angle
-    delta_y_h = peak_01[0] - peak_00[0]
-    delta_x_h = peak_01[1] - peak_00[1]
-    angle_h = np.arctan2(delta_y_h, delta_x_h) * 180 / np.pi
-
-    # Vertical angle
-    delta_y_v = peak_10[0] - peak_00[0]
-    delta_x_v = peak_10[1] - peak_00[1]
-    angle_v = np.arctan2(delta_y_v, delta_x_v) * 180 / np.pi - 90
-
-    # Average angle
-    angle = (angle_h + angle_v) / 2
-
-    return angle
 
 
 # =============================================================================
@@ -764,7 +707,55 @@ def analyze_grating_data(
     factor_x = virtual_pixel_size[1] / (params["det2sample"] * params["wavelength"])
     factor_y = virtual_pixel_size[0] / (params["det2sample"] * params["wavelength"])
 
-    dpc_x = -results[5] * factor_x  # arg01 * factor_x (horizontal)
-    dpc_y = -results[6] * factor_y  # arg10 * factor_y (vertical)
+    dpc_x = results[5] * factor_x  # arg01 * factor_x (horizontal)
+    dpc_y = results[6] * factor_y  # arg10 * factor_y (vertical)
 
     return *results[:5], dpc_x, dpc_y, virtual_pixel_size, params
+
+
+def extract_harmonics_and_dpc(
+    img_fft: np.ndarray,
+    params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Stage 2: Extract harmonics and compute DPC signals.
+
+    Parameters
+    ----------
+    img_fft : np.ndarray
+        FFT of the grating image
+    params : dict
+        Configuration parameters
+    verbose : bool
+        Whether to print status messages
+
+    Returns
+    -------
+    dict
+        Contains int00, int01, int10, dark_field01, dark_field10,
+        dpc_x, dpc_y, virtual_pixel_size, updated params
+    """
+    results = analyze_grating_data(img_fft, None, params, plot_flag=False)
+    (
+        int00,
+        int01,
+        int10,
+        dark_field01,
+        dark_field10,
+        dpc_x,
+        dpc_y,
+        virtual_pixel_size,
+        params,
+    ) = results
+
+    return {
+        "int00": int00,
+        "int01": int01,
+        "int10": int10,
+        "dark_field01": dark_field01,
+        "dark_field10": dark_field10,
+        "dpc_x": dpc_x,
+        "dpc_y": dpc_y,
+        "virtual_pixel_size": virtual_pixel_size,
+        "params": params,
+    }

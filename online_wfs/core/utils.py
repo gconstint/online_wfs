@@ -16,7 +16,7 @@ def calculate_magnification_correction(params):
     d = params["det2sample"]  # Detector-to-sample distance
     R = params["source_dist"]  # Source-to-sample distance
 
-    scale_factor = R / (R + d)
+    scale_factor = (R + d) / R
     return scale_factor
 
 
@@ -149,65 +149,3 @@ def image_correction(
     corrected_image = numerator / (denominator + epsilon)
 
     return corrected_image
-
-
-def calculate_rotation_angle(
-    params: dict,
-    verbose: bool = True,
-    crop_size: int = 2048,
-) -> float:
-    """
-    Calculate the rotation angle needed to align grating peaks horizontally.
-
-    Call this once on a reference image, then pass the rotation_angle to
-    load_and_preprocess_image() for subsequent frames to skip expensive
-    FFT + peak finding computation.
-
-    Parameters
-    ----------
-    params : dict
-        Configuration parameters with image_path, pixel_size, pattern_period
-    verbose : bool
-        Whether to print status messages
-    crop_size : int
-        Size to crop the image to (default: 2048)
-
-    Returns
-    -------
-    float
-        Rotation angle in degrees
-    """
-    from os import cpu_count
-    from scipy.fft import fft2, fftshift
-    from .grating_analysis import (
-        calculate_harmonic_periods,
-        accurate_harmonic_periods,
-        calculate_rotation_angle_from_peaks,
-    )
-
-    # Load and preprocess image
-    img, dark, flat = load_images(
-        params["image_path"], params["dark_image_path"], params["flat_image_path"]
-    )
-    img = image_correction(img, flat=flat, dark=dark, epsilon=1e-8, normalize=False)
-    img_cropped = center_crop(img, target_size=crop_size)
-
-    # Calculate harmonic periods
-    harmonic_periods = calculate_harmonic_periods(
-        (img_cropped.shape[0], img_cropped.shape[1]),
-        params["pixel_size"],
-        params["pattern_period"],
-    )
-
-    # Compute FFT and find peaks
-    img32 = np.asarray(img_cropped, dtype=np.float32, order="C")
-    img_fft = fftshift(fft2(img32, norm="ortho", workers=cpu_count()))
-    _, peak_positions = accurate_harmonic_periods(img_fft, harmonic_periods)
-
-    # Calculate angle using core function
-    angle = calculate_rotation_angle_from_peaks(peak_positions)
-
-    if verbose:
-        print(f"Calculated rotation angle: {angle:.4f} degrees")
-
-    return angle

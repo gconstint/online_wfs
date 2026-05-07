@@ -20,7 +20,6 @@ Symbol definitions:
 - Z_T: Talbot distance under spherical wave conditions
 """
 
-import numpy as np
 from scipy import constants
 
 
@@ -110,6 +109,10 @@ def print_infos(
     print(f"Grating type   : {('π/2' if eta == 1 else 'π')} phase grating (η = {eta})")
     print(f"R1             : {r1 * 1e3:.1f} mm")
     print("=" * 65)
+    print("Calculating Talbot distances for odd orders n = 1, 3, 5, ...")
+    print(
+        "Z_T0 for plane wave , Z_T for spherical wave , and R2 is distance from source to det."
+    )
     print(f"\n{'Order':<8} {'Z_T0 (mm)':<18} {'Z_T (mm)':<18} {'R2 (mm)':<15}")
     print("-" * 65)
 
@@ -122,6 +125,7 @@ def print_talbot_distance(
     talbot_orders,
 ) -> None:
     """Print Talbot distance results for each order."""
+
     for n in talbot_orders:
         z_t0 = calculate_plane_wave_talbot_distance(grating_period, wavelength, eta, n)
         try:

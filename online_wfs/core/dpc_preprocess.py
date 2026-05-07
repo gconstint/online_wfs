@@ -1,175 +1,302 @@
 """
 DPC (Differential Phase Contrast) preprocessing module.
 
-Optimized for robustness against experimental noise (NaNs) and memory efficiency.
+Utilities for DPC fitting and relative-reference subtraction.
 """
-
-import functools
-from os import cpu_count
 
 import numpy as np
 
-# Use scipy.fft for better performance
-from scipy.fft import fft2, ifft2, fftshift, ifftshift, fftfreq
-from typing import Tuple
-
-# Module-level constant for parallel FFT
-_CPU_COUNT = cpu_count() or 4
+from typing import Tuple, Optional, Dict, Any
 
 
-def _create_cosine_edge_taper(
-    image_shape: Tuple[int, int], taper_ratio: float = 0.08, dtype=np.float32
-) -> np.ndarray:
+# =============================================================================
+# DPC Gradient Fitting for Spherical Wavefront Extraction
+# =============================================================================
+
+
+def _coerce_pixel_size(pixel_size: Tuple[float, float] | float) -> Tuple[float, float]:
+    """Return pixel size as ``(py, px)`` in meters."""
+    if isinstance(pixel_size, (float, int)):
+        return float(pixel_size), float(pixel_size)
+    return float(pixel_size[0]), float(pixel_size[1])
+
+def _fit_1d_linear_weighted(
+    data: np.ndarray,
+    coords: np.ndarray,
+    weights: np.ndarray,
+    min_valid_fraction: float = 0.5,
+) -> Tuple[Optional[float], Optional[float]]:
     """
-    Create a cosine edge taper window using broadcasting to save memory.
-    """
-    height, width = image_shape
-
-    taper_h = max(1, int(height * taper_ratio))
-    taper_w = max(1, int(width * taper_ratio))
-
-    # 1D transitions
-    # 0.5 * (1 - cos) creates a curve from 0 to 1
-    curve_h = 0.5 * (1 - np.cos(np.linspace(0, np.pi, taper_h, dtype=dtype)))
-    curve_w = 0.5 * (1 - np.cos(np.linspace(0, np.pi, taper_w, dtype=dtype)))
-
-    # Construct 1D windows
-    win_h = np.ones(height, dtype=dtype)
-    win_h[:taper_h] = curve_h
-    win_h[-taper_h:] = curve_h[::-1]
-
-    win_w = np.ones(width, dtype=dtype)
-    win_w[:taper_w] = curve_w
-    win_w[-taper_w:] = curve_w[::-1]
-
-    # Return 2D window using broadcasting (column vector * row vector)
-    # shape: (height, 1) * (1, width) -> (height, width)
-    return win_h[:, None] * win_w[None, :]
-
-
-@functools.lru_cache(maxsize=8)
-def _get_cached_taper_window(
-    height: int, width: int, taper_ratio: float = 0.08
-) -> np.ndarray:
-    """Cached version of cosine edge taper window."""
-    return _create_cosine_edge_taper((height, width), taper_ratio, dtype=np.float32)
-
-
-@functools.lru_cache(maxsize=8)
-def _get_cached_lowpass_filter(
-    height: int, width: int, cutoff_frequency: float = 0.35, rolloff_width: float = 0.08
-) -> np.ndarray:
-    """Cached version of raised cosine lowpass filter."""
-    return _create_raised_cosine_lowpass_filter(
-        (height, width), cutoff_frequency, rolloff_width, dtype=np.float32
-    )
-
-
-def _create_raised_cosine_lowpass_filter(
-    image_shape: Tuple[int, int],
-    cutoff_frequency: float = 0.35,
-    rolloff_width: float = 0.08,
-    dtype=np.float32,
-) -> np.ndarray:
-    """
-    Create filter using open grids to reduce memory usage.
-    """
-    height, width = image_shape
-
-    f_stop = cutoff_frequency
-    f_pass = max(0.0, f_stop - rolloff_width)
-
-    # Generate shifted frequency coordinates directly (-0.5 to 0.5)
-    # Use scipy.fft for better performance
-    fy = fftshift(fftfreq(height)).astype(dtype)
-    fx = fftshift(fftfreq(width)).astype(dtype)
-
-    # Use broadcasting to calculate radial frequency without full meshgrid
-    # fy[:, None] is (H, 1), fx[None, :] is (1, W) -> result is (H, W)
-    radial_freq = np.sqrt(fy[:, None] ** 2 + fx[None, :] ** 2)
-
-    # Initialize filter
-    lowpass_filter = np.ones(image_shape, dtype=dtype)
-
-    # Apply stopband
-    lowpass_filter[radial_freq >= f_stop] = 0.0
-
-    # Apply transition
-    mask = (radial_freq > f_pass) & (radial_freq < f_stop)
-    if np.any(mask):
-        # Normalize transition region to [0, 1]
-        norm_freq = (radial_freq[mask] - f_pass) / (f_stop - f_pass)
-        # Raised cosine decay: 1 -> 0
-        lowpass_filter[mask] = 0.5 * (1 + np.cos(np.pi * norm_freq))
-
-    return lowpass_filter
-
-
-def _apply_reflective_padding(
-    image: np.ndarray, padding_ratio: float = 0.125
-) -> Tuple[np.ndarray, Tuple[slice, slice]]:
-    """
-    Same logic, added docstring for return type clarity.
-    """
-    height, width = image.shape
-    pad_h = int(height * padding_ratio)
-    pad_w = int(width * padding_ratio)
-
-    padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode="reflect")
-
-    crop_slice = (slice(pad_h, pad_h + height), slice(pad_w, pad_w + width))
-
-    return padded_image, crop_slice
-
-
-def preprocess_dpc(
-    dpc_image: np.ndarray,
-    padding_ratio: float = 0.125,
-    taper_ratio: float = 0.08,
-    lowpass_cutoff: float = 0.35,
-    lowpass_rolloff: float = 0.08,
-    fill_value: float = 0.0,
-) -> np.ndarray:
-    """
-    Preprocesses DPC image with NaN handling and memory optimizations.
+    Perform a weighted linear fit on 1D data: ``data = slope * coords + offset``.
 
     Args:
-        fill_value: Value to replace NaNs with (after mean subtraction).
+        data: One-dimensional data array.
+        coords: Matching coordinate array.
+        weights: Weight array.
+        min_valid_fraction: Minimum fraction of valid data points.
+
+    Returns:
+        ``(slope, offset)`` or ``(None, None)`` if the fit fails.
     """
-    # if dpc_image.ndim != 2:
-    #     raise ValueError(f"Input must be 2D, got shape {dpc_image.shape}")
+    valid = np.isfinite(data)
+    if np.sum(valid) < len(data) * min_valid_fraction:
+        return None, None
 
-    # 1. Robust DC Removal
-    # Use nanmean to ignore dead pixels/mask during mean calculation
-    mean_val = np.mean(dpc_image)
-    dpc_zero_mean = dpc_image - mean_val
+    w = weights.copy()
+    w[~valid] = 0
+    if np.sum(w) < 1e-12:
+        return None, None
 
-    # Critical: Replace NaNs with fill_value before FFT
-    # Use np.where for efficiency (no intermediate mask array)
-    # dpc_zero_mean = np.where(np.isfinite(dpc_zero_mean), dpc_zero_mean, fill_value)
+    data_clean = data.copy()
+    data_clean[~valid] = 0
 
-    # 2. Reflective Padding
-    padded_image, crop_slice = _apply_reflective_padding(
-        dpc_zero_mean, padding_ratio=padding_ratio
+    A = np.column_stack([coords, np.ones_like(coords)])
+    sqrt_w = np.sqrt(w)
+
+    try:
+        coeffs, *_ = np.linalg.lstsq(
+            A * sqrt_w[:, None], data_clean * sqrt_w, rcond=None
+        )
+        return coeffs[0], coeffs[1]
+    except np.linalg.LinAlgError:
+        return None, None
+
+
+def _fit_dpc_rows(
+    dpc_x: np.ndarray,
+    x_coords: np.ndarray,
+    weights_x: np.ndarray,
+) -> Tuple[list, list]:
+    """Fit each row of ``dpc_x`` linearly and extract slope and intercept."""
+    slopes, offsets = [], []
+    for i in range(dpc_x.shape[0]):
+        slope, offset = _fit_1d_linear_weighted(dpc_x[i, :], x_coords, weights_x)
+        if slope is not None:
+            slopes.append(slope)
+            offsets.append(offset)
+    return slopes, offsets
+
+
+def _fit_dpc_cols(
+    dpc_y: np.ndarray,
+    y_coords: np.ndarray,
+    weights_y: np.ndarray,
+) -> Tuple[list, list]:
+    """Fit each column of ``dpc_y`` linearly and extract slope and intercept."""
+    slopes, offsets = [], []
+    for j in range(dpc_y.shape[1]):
+        slope, offset = _fit_1d_linear_weighted(dpc_y[:, j], y_coords, weights_y)
+        if slope is not None:
+            slopes.append(slope)
+            offsets.append(offset)
+    return slopes, offsets
+
+
+def _calculate_focus_from_curvature(
+    slope: float,
+    wavelength: float,
+):
+    """
+    Compute the per-axis focus distance directly from the total DPC slope.
+
+    For total physical DPC gradients, ``dpc = ∂phase/∂x`` or ``∂phase/∂y``,
+    the fitted slope satisfies ``slope = 2a`` where ``a`` is the quadratic
+    phase coefficient in ``rad/m²``. The absolute wavefront curvature is then
+
+        ``1 / R = λ * a / π``.
+
+    """
+    a = slope / 2.0  # Quadratic coefficient [rad/m²]
+    curvature = wavelength * a / np.pi  # Absolute curvature [1/m]
+
+    if abs(curvature) > 1e-14:
+        R_real = 1.0 / curvature
+    else:
+        R_real = np.inf
+
+    return R_real
+
+
+def fit_dpc_1d(
+    dpc_x: np.ndarray,
+    dpc_y: np.ndarray,
+    pixel_size: Tuple[float, float],
+    wavelength: float,
+    use_robust: bool = True,
+    weight_sigma: float = 0.4,
+) -> Tuple[Dict[str, Any], np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Fit the low-order component of total physical DPC gradients.
+
+    Physical background
+    --------
+    For a parabolic reference phase ``phase = a*x² + b*y² + tx*x + ty*y + c``,
+    the physical DPC gradients are affine in each axis:
+
+        ``g_x = ∂phase/∂x = 2a*(x - x0) = slope_x*x + offset_x``
+        ``g_y = ∂phase/∂y = 2b*(y - y0) = slope_y*y + offset_y``
+
+    Fitting those low-order DPC terms provides:
+    - the per-axis curvature used for focus estimation
+    - the fitted low-order DPC component used for residual subtraction
+
+    The absolute focus distance follows
+    ``1 / R_real = λ * a / π`` with ``a = slope / 2``.
+
+    Parameters
+    ----------
+    dpc_x : np.ndarray
+        Horizontal physical DPC gradient ``∂phase/∂x`` [rad/m].
+    dpc_y : np.ndarray
+        Vertical physical DPC gradient ``∂phase/∂y`` [rad/m].
+    pixel_size : tuple
+        Pixel size ``(py, px)`` [m]
+    wavelength : float
+        X-ray wavelength [m]
+    use_robust : bool
+        Whether to use robust fitting (median instead of mean)
+    weight_sigma : float
+        Gaussian weight sigma, relative to the field size
+    verbose : bool
+        Whether to print verbose output
+
+    Returns
+    -------
+    fit_params : dict
+        Minimal fit parameters used by callers: center, slopes, quadratic
+        coefficients, and fitted distances.
+    dpc_x_fit : np.ndarray
+        Fitted low-order DPC component of ``dpc_x`` [rad/m].
+    dpc_y_fit : np.ndarray
+        Fitted low-order DPC component of ``dpc_y`` [rad/m].
+    dpc_x_residual : np.ndarray
+        Residual horizontal DPC after subtracting the low-order fit [rad/m].
+    dpc_y_residual : np.ndarray
+        Residual vertical DPC after subtracting the low-order fit [rad/m].
+    """
+    if dpc_x.shape != dpc_y.shape:
+        raise ValueError(
+            f"dpc_x and dpc_y must have the same shape, got {dpc_x.shape} and {dpc_y.shape}"
+        )
+
+    H, W = dpc_x.shape
+    py, px = _coerce_pixel_size(pixel_size)
+
+    # ===== 1. Build coordinates and weights =====
+    y_coords = (np.arange(H) - (H - 1) / 2.0) * py
+    x_coords = (np.arange(W) - (W - 1) / 2.0) * px
+
+    # Gaussian weights that down-weight edge pixels
+    sigma_x = weight_sigma * (W * px) / 2.0
+    sigma_y = weight_sigma * (H * py) / 2.0
+    weights_x = np.exp(-(x_coords**2) / (2 * sigma_x**2))
+    weights_y = np.exp(-(y_coords**2) / (2 * sigma_y**2))
+
+    # ===== 2. Fit rows and columns linearly =====
+    slopes_x, offsets_x = _fit_dpc_rows(dpc_x, x_coords, weights_x)
+    slopes_y, offsets_y = _fit_dpc_cols(dpc_y, y_coords, weights_y)
+
+    if len(slopes_x) == 0 or len(slopes_y) == 0:
+        zeros_x = np.zeros_like(dpc_x)
+        zeros_y = np.zeros_like(dpc_y)
+        return {}, zeros_x, zeros_y, zeros_x.copy(), zeros_y.copy()
+
+    # ===== 3. Aggregate fit parameters (robust median or mean) =====
+    aggregate = np.median if use_robust else np.mean
+    slope_x = aggregate(slopes_x)
+    slope_y = aggregate(slopes_y)
+    offset_x = aggregate(offsets_x)
+    offset_y = aggregate(offsets_y)
+
+    # ===== 4. Build the fitted low-order DPC components =====
+    X, Y = np.meshgrid(x_coords, y_coords)
+
+    dpc_x_fit = slope_x * X + offset_x
+    dpc_y_fit = slope_y * Y + offset_y
+
+    dpc_x_residual = dpc_x - dpc_x_fit
+    dpc_y_residual = dpc_y - dpc_y_fit
+
+    # ===== 5. Compute focus distances =====
+    a_x, a_y = slope_x / 2.0, slope_y / 2.0
+    R_x = _calculate_focus_from_curvature(slope_x, wavelength)
+    R_y = _calculate_focus_from_curvature(slope_y, wavelength)
+
+    # ===== 6. Recover the center position from the offsets =====
+    x0 = -offset_x / slope_x if abs(slope_x) > 1e-14 else 0.0
+    y0 = -offset_y / slope_y if abs(slope_y) > 1e-14 else 0.0
+
+    # ===== 7. Build the result dictionary =====
+    fit_params = {
+        "x0": x0,
+        "y0": y0,
+        "slope_x": slope_x,
+        "slope_y": slope_y,
+        "a_x": a_x,
+        "a_y": a_y,
+        "R_x": R_x,
+        "R_y": R_y,
+    }
+
+    return fit_params, dpc_x_fit, dpc_y_fit, dpc_x_residual, dpc_y_residual
+
+
+def run_dpc_fitting(
+    dpc_x: np.ndarray,
+    dpc_y: np.ndarray,
+    pixel_size: Tuple[float, float],
+    wavelength: float,
+    use_robust: bool = True,
+    weight_sigma: float = 0.4,
+) -> Dict[str, Any]:
+    """
+    Fit the main DPC body and return the fitted body plus residual.
+
+    The residual is the raw DPC minus the fitted low-order DPC body.
+
+    Returns a dictionary with:
+    - ``fit_params``: low-order DPC fit metadata
+    - ``dpc_fit``: fitted low-order DPC components
+    - ``dpc_residual``: residual DPC components
+    """
+    if dpc_x.shape != dpc_y.shape:
+        raise ValueError(
+            f"dpc_x and dpc_y must have the same shape, got {dpc_x.shape} and {dpc_y.shape}"
+        )
+    if wavelength is None or not np.isfinite(wavelength) or wavelength <= 0:
+        raise ValueError("wavelength must be a finite positive value")
+
+    pixel_size_tuple = _coerce_pixel_size(pixel_size)
+    dpc_x_input = np.asarray(dpc_x)
+    dpc_y_input = np.asarray(dpc_y)
+    (
+        fit_params,
+        dpc_x_fit,
+        dpc_y_fit,
+        dpc_x_residual,
+        dpc_y_residual,
+    ) = fit_dpc_1d(
+        dpc_x=dpc_x_input,
+        dpc_y=dpc_y_input,
+        pixel_size=pixel_size_tuple,
+        wavelength=wavelength,
+        use_robust=use_robust,
+        weight_sigma=weight_sigma,
     )
+    if not fit_params:
+        raise ValueError("DPC body fitting failed; unable to identify residual")
 
-    # 3. Tapering using cached window
-    h, w = padded_image.shape
-    taper_window = _get_cached_taper_window(h, w, taper_ratio)
-    padded_image = padded_image * taper_window  # Avoid in-place for cached arrays
+    dpc_fit = {
+        "dpc_x_fit": dpc_x_fit,
+        "dpc_y_fit": dpc_y_fit,
+    }
+    dpc_residual = {
+        "dpc_x_residual": dpc_x_residual,
+        "dpc_y_residual": dpc_y_residual,
+    }
 
-    # 4. Filter Generation using cached filter
-    lowpass_filter = _get_cached_lowpass_filter(h, w, lowpass_cutoff, lowpass_rolloff)
-
-    # 5. Frequency Domain Filtering with multi-threading
-    freq_domain = fftshift(fft2(padded_image, workers=_CPU_COUNT))
-
-    # Apply filter in-place
-    freq_domain *= lowpass_filter
-
-    # Inverse FFT with multi-threading
-    filtered_image = ifft2(ifftshift(freq_domain), workers=_CPU_COUNT)
-
-    # 6. Crop and Return
-    # Use np.real on the cropped region directly to avoid full array copy
-    return np.real(filtered_image[crop_slice]).astype(dpc_image.dtype)
+    return {
+        "fit_params": fit_params,
+        "dpc_fit": dpc_fit,
+        "dpc_residual": dpc_residual,
+    }
