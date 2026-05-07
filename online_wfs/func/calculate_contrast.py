@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
 from numpy.fft import fft2, fftshift
 
 

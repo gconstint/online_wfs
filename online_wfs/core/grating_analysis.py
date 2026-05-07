@@ -4,7 +4,7 @@ from os import cpu_count
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
-from scipy.fft import ifft2, ifftshift
+from scipy.fft import dctn, idctn, ifft2, ifftshift
 from skimage.restoration import unwrap_phase
 from typing import Tuple, List, Dict, Optional, Union, Any
 
@@ -65,6 +65,47 @@ def extent_func(img, pixel_size=1):
     )
 
     return extent
+
+
+def _wrap(phase_diff: np.ndarray) -> np.ndarray:
+    """Wrap phase differences into the range [-pi, pi]."""
+    return np.arctan2(np.sin(phase_diff), np.cos(phase_diff))
+
+
+def dct_unwrap_phase(wrapped_phase: np.ndarray) -> np.ndarray:
+    """
+    Unwrap a 2D wrapped phase image by solving the Poisson equation via DCT.
+
+    The solution is defined up to an additive constant. The DC component is
+    fixed to zero and callers can apply their preferred offset convention.
+    """
+    ny, nx = wrapped_phase.shape
+
+    dx = _wrap(np.diff(wrapped_phase, axis=1))
+    dy = _wrap(np.diff(wrapped_phase, axis=0))
+
+    rho = np.zeros((ny, nx), dtype=np.float64)
+
+    rho[:, 1:-1] += dx[:, 1:] - dx[:, :-1]
+    rho[:, 0] += dx[:, 0]
+    rho[:, -1] -= dx[:, -1]
+
+    rho[1:-1, :] += dy[1:, :] - dy[:-1, :]
+    rho[0, :] += dy[0, :]
+    rho[-1, :] -= dy[-1, :]
+
+    rho_dct = dctn(rho, type=2, norm="ortho")
+
+    i_idx = np.arange(ny)
+    j_idx = np.arange(nx)
+    jj, ii = np.meshgrid(j_idx, i_idx)
+    denom = 2.0 * (np.cos(np.pi * ii / ny) + np.cos(np.pi * jj / nx) - 2.0)
+    denom[0, 0] = 1.0
+
+    phi_dct = rho_dct / denom
+    phi_dct[0, 0] = 0.0
+
+    return idctn(phi_dct, type=2, norm="ortho")
 
 
 def calculate_peak_index(
@@ -136,7 +177,7 @@ def _idxPeak_ij_exp(
     local_region = intensity[y1:y2, x1:x2]
     local_max = np.unravel_index(np.argmax(local_region), local_region.shape)
 
-    return [y1 + local_max[0], x1 + local_max[1]]
+    return [int(y1 + local_max[0]), int(x1 + local_max[1])]
 
 
 def _error_harmonic_peak(
@@ -223,7 +264,7 @@ def find_peak_in_region(
     local = intensity[y1:y2, x1:x2]
     local_max = np.unravel_index(np.argmax(local), local.shape)
 
-    return [y1 + local_max[0], x1 + local_max[1]]
+    return [int(y1 + local_max[0]), int(x1 + local_max[1])]
 
 
 def calculate_harmonic_periods(
@@ -240,8 +281,8 @@ def calculate_harmonic_periods(
     Returns:
         List[float]: Harmonic periods [period_vert, period_hor] in pixels.
     """
-    vert_harm = (pixel_size[0] * img_shape[0]) / pattern_period + 1
-    hor_harm = (pixel_size[1] * img_shape[1]) / pattern_period + 1
+    vert_harm = (pixel_size[0] * img_shape[0]) / pattern_period
+    hor_harm = (pixel_size[1] * img_shape[1]) / pattern_period
     return [vert_harm, hor_harm]
 
 
@@ -284,38 +325,11 @@ def extract_harmonic(
     har_v, har_h = int(harmonic_ij[0]), int(harmonic_ij[1])
     period_vert, period_hor = harmonic_period
 
-    if verbose:
-        print(f"MESSAGE: Extracting harmonic {harmonic_ij}")
-        print(f"MESSAGE: Harmonic period Horizontal: {int(period_hor)} pixels")
-        print(f"MESSAGE: Harmonic period Vertical: {int(period_vert)} pixels")
-
+  
     # 1. Get theoretical peak position
     idx_peak_ij = calculate_peak_index(
         har_v, har_h, n_rows, n_columns, period_vert, period_hor
     )
-
-    # 2. Calculate peak position error only when needed (verbose mode or experimental peak)
-    # This saves computation when using theoretical peaks in non-verbose mode
-    if verbose or not use_theoretical_peak:
-        del_i, del_j = _error_harmonic_peak(
-            img_fft, har_v, har_h, period_vert, period_hor, search_region
-        )
-
-        if verbose:
-            print(
-                f"MESSAGE: Theoretical peak index: {idx_peak_ij[0]},{idx_peak_ij[1]} [VxH]"
-            )
-            print(
-                f"MESSAGE: Harmonic peak {harmonic_ij} is misplaced by: "
-                f"{del_i} pixels in vertical, {del_j} pixels in horizontal"
-            )
-
-        # Warn if peak is far from theoretical position (WavePy compatibility)
-        if (np.abs(del_i) > search_region // 2) or (np.abs(del_j) > search_region // 2):
-            print(
-                f"ATTENTION: Harmonic Peak {harmonic_ij} is too far from theoretical value.\n"
-                f"ATTENTION: {del_i} pixels in vertical, {del_j} pixels in horizontal"
-            )
 
     # 3. Determine extraction window size
     half_window_vert = int(period_vert // 2)
@@ -381,7 +395,7 @@ def _plot_extraction(
 
     plt.figure(figsize=(10, 8))
     plt.imshow(
-        np.log10(np.abs(img_fft)), cmap="inferno", extent=extent_func(np.abs(img_fft))
+        np.log10(np.abs(img_fft)), cmap="inferno", extent=tuple(extent_func(np.abs(img_fft)))
     )
 
     # Mark theoretical peak position
@@ -476,36 +490,6 @@ def accurate_harmonic_periods(
     return [exp_period_v, exp_period_h], peak_positions
 
 
-def calculate_rotation_angle_from_peaks(peak_positions: Dict[str, List[int]]) -> float:
-    """
-    Calculate the rotation angle to align grating axes based on harmonic peak positions.
-
-    Args:
-        peak_positions (Dict): Peak positions {'00', '01', '10'}.
-
-    Returns:
-        float: Rotation angle in degrees.
-    """
-    peak_00 = peak_positions["00"]
-    peak_01 = peak_positions["01"]
-    peak_10 = peak_positions["10"]
-
-    # Horizontal angle
-    delta_y_h = peak_01[0] - peak_00[0]
-    delta_x_h = peak_01[1] - peak_00[1]
-    angle_h = np.arctan2(delta_y_h, delta_x_h) * 180 / np.pi
-
-    # Vertical angle
-    delta_y_v = peak_10[0] - peak_00[0]
-    delta_x_v = peak_10[1] - peak_00[1]
-    angle_v = np.arctan2(delta_y_v, delta_x_v) * 180 / np.pi - 90
-
-    # Average angle
-    angle = (angle_h + angle_v) / 2
-
-    return angle
-
-
 # =============================================================================
 # High-Level Processing Functions
 # =============================================================================
@@ -579,8 +563,9 @@ def _plot_harmonic_spectra(fft00, fft01, fft10):
 def single_2D_grating_analyses(
     img_fft: np.ndarray,
     img_ref_fft: Optional[np.ndarray] = None,
-    harmonic_period: Optional[List[float]] = None,
+    harmonic_period: List[float] = [0,0],
     unwrap_flag: bool = True,
+    dct_flag: bool = True,
     plot_flag: bool = True,
     verbose: bool = False,
 ) -> Tuple[
@@ -594,6 +579,8 @@ def single_2D_grating_analyses(
         img_ref_fft (Optional[np.ndarray]): Reference image spectrum.
         harmonic_period (List[float]): Harmonic periods [period_vert, period_hor].
         unwrap_flag (bool): Whether to unwrap phase.
+        dct_flag (bool): If True, use DCT-based least-squares unwrapping.
+            If False, fall back to skimage.unwrap_phase.
         plot_flag (bool): Whether to plot results.
         verbose (bool): Detailed logging.
 
@@ -632,8 +619,16 @@ def single_2D_grating_analyses(
 
     # 3. Phase Unwrapping
     if unwrap_flag:
-        arg01 = unwrap_phase(phase01)
-        arg10 = unwrap_phase(phase10)
+        if dct_flag:
+            if verbose:
+                print("MESSAGE: Using DCT-based phase unwrapping")
+            arg01 = dct_unwrap_phase(phase01)
+            arg10 = dct_unwrap_phase(phase10)
+        else:
+            if verbose:
+                print("MESSAGE: Using skimage phase unwrapping")
+            arg01 = unwrap_phase(phase01)
+            arg10 = unwrap_phase(phase10)
     else:
         arg01, arg10 = phase01, phase10
 
@@ -712,7 +707,55 @@ def analyze_grating_data(
     factor_x = virtual_pixel_size[1] / (params["det2sample"] * params["wavelength"])
     factor_y = virtual_pixel_size[0] / (params["det2sample"] * params["wavelength"])
 
-    dpc_x = -results[5] * factor_x  # arg01 * factor_x (horizontal)
-    dpc_y = -results[6] * factor_y  # arg10 * factor_y (vertical)
+    dpc_x = results[5] * factor_x  # arg01 * factor_x (horizontal)
+    dpc_y = results[6] * factor_y  # arg10 * factor_y (vertical)
 
     return *results[:5], dpc_x, dpc_y, virtual_pixel_size, params
+
+
+def extract_harmonics_and_dpc(
+    img_fft: np.ndarray,
+    params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Stage 2: Extract harmonics and compute DPC signals.
+
+    Parameters
+    ----------
+    img_fft : np.ndarray
+        FFT of the grating image
+    params : dict
+        Configuration parameters
+    verbose : bool
+        Whether to print status messages
+
+    Returns
+    -------
+    dict
+        Contains int00, int01, int10, dark_field01, dark_field10,
+        dpc_x, dpc_y, virtual_pixel_size, updated params
+    """
+    results = analyze_grating_data(img_fft, None, params, plot_flag=False)
+    (
+        int00,
+        int01,
+        int10,
+        dark_field01,
+        dark_field10,
+        dpc_x,
+        dpc_y,
+        virtual_pixel_size,
+        params,
+    ) = results
+
+    return {
+        "int00": int00,
+        "int01": int01,
+        "int10": int10,
+        "dark_field01": dark_field01,
+        "dark_field10": dark_field10,
+        "dpc_x": dpc_x,
+        "dpc_y": dpc_y,
+        "virtual_pixel_size": virtual_pixel_size,
+        "params": params,
+    }

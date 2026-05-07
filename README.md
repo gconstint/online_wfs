@@ -14,6 +14,12 @@ For development:
 pip install -e .
 ```
 
+For the interactive Talbot notebook:
+
+```bash
+pip install -e .[notebook]
+```
+
 ## Quick Start
 
 All examples load parameters from a JSON config file:
@@ -22,8 +28,8 @@ All examples load parameters from a JSON config file:
 # Run the full analysis pipeline
 python examples/example_pipeline.py
 
-# Calculate Talbot distances
-python examples/example_talbot_distance.py
+# Explore Talbot distances interactively
+jupyter lab examples/example_talbot_distance.ipynb
 
 # Calculate grating contrast
 python examples/example_contrast.py
@@ -83,12 +89,13 @@ examples/
 ├── params.json            # Config file
 ├── example_pipeline.py
 ├── example_contrast.py
-└── example_talbot_distance.py
+└── example_talbot_distance.ipynb
 ```
 
 ## Dependencies
 
 - numpy, scipy
 - matplotlib
+- ipywidgets (for the Talbot notebook)
 - Pillow, opencv-python
 - scikit-image

@@ -8,11 +8,11 @@ This module provides functions for analyzing beam properties including:
 - Gaussian beam propagation analysis
 """
 
-import os
+import dis
+
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit, fsolve
-from typing import Tuple, Dict, Optional
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 
 # Physical constants
@@ -169,13 +169,10 @@ def _fit_gaussian_profile(
         return fwhm, w0, None
 
 
-def calculate_and_visualize_beam(
+def calc_beam_size(
     intensity: np.ndarray,
     virtual_pixel_size: Tuple[float, float],
-    title: str = "Beam Analysis",
-    save_path=None,
-    show_plot: bool = True,
-    verbose: bool = True,
+    verbose: bool = False,
 ) -> Tuple[Tuple[float, float], Dict[str, float]]:
     """
     Calculate beam position and size from 2D intensity distribution.
@@ -241,12 +238,6 @@ def calculate_and_visualize_beam(
         profile_vertical, y_coords_um, verbose=verbose
     )
 
-    # =========================================================================
-    # Step 4: Extract beam center position from fit parameters
-    # =========================================================================
-    # Gaussian fit parameters: [amplitude, mean, sigma, offset]
-    # The 'mean' parameter gives the beam center position
-
     if fit_params_x is not None:
         _, beam_center_x_um, _, _ = fit_params_x
     else:
@@ -261,34 +252,6 @@ def calculate_and_visualize_beam(
         if verbose:
             print("Warning: Vertical Gaussian fit failed, using image center (y=0)")
 
-    # =========================================================================
-    # Step 5: Display results
-    # =========================================================================
-    if verbose:
-        print(f"Beam center: ({beam_center_x_um:.3f}, {beam_center_y_um:.3f}) µm")
-        print(f"FWHM: x = {fwhm_x_um:.3f} µm, y = {fwhm_y_um:.3f} µm")
-        print(f"w0 (1/e² radius): x = {w0_x_um:.3f} µm, y = {w0_y_um:.3f} µm")
-
-    # =========================================================================
-    # Step 6: Visualize beam analysis results
-    # =========================================================================
-    if show_plot:
-        plot_beam_visualization(
-            intensity,
-            virtual_pixel_size,
-            beam_center_x_um,
-            beam_center_y_um,
-            fwhm_x_um,
-            fwhm_y_um,
-            fit_params_x,
-            fit_params_y,
-            title,
-            save_path,
-        )
-
-    # =========================================================================
-    # Step 7: Return results in SI units (meters)
-    # =========================================================================
     beam_position = (
         beam_center_x_um * 1e-6,  # Convert µm to m
         beam_center_y_um * 1e-6,
@@ -302,172 +265,15 @@ def calculate_and_visualize_beam(
     return beam_position, beam_size
 
 
-def plot_beam_visualization(
-    intensity: np.ndarray,
-    virtual_pixel_size: Tuple[float, float],
-    beam_x_um: float,
-    beam_y_um: float,
-    fwhm_x: float,
-    fwhm_y: float,
-    fit_params_x: Optional[tuple],
-    fit_params_y: Optional[tuple],
-    title: str = "Beam Analysis",
-    save_path=None,
-) -> None:
-    """
-    Plot intensity map with beam analysis overlays.
-
-    Creates a 2x2 subplot showing:
-    - Intensity map with beam center and FWHM ellipse
-    - Horizontal profile with Gaussian fit
-    - Vertical profile with Gaussian fit
-    - 3D surface plot
-
-    Args:
-        intensity: 2D intensity array
-        virtual_pixel_size: Pixel size [px_x, px_y] in meters
-        beam_x_um: Beam center x-coordinate in microns
-        beam_y_um: Beam center y-coordinate in microns
-        fwhm_x: FWHM in x-direction (microns)
-        fwhm_y: FWHM in y-direction (microns)
-        fit_params_x: Gaussian fit parameters for x-profile (or None)
-        fit_params_y: Gaussian fit parameters for y-profile (or None)
-        title: Plot title
-    """
-    height, width = intensity.shape
-
-    # Calculate physical coordinates
-    # Note: virtual_pixel_size is (py, px) = (dy, dx) format
-    py, px = virtual_pixel_size
-    x_size = width * px
-    y_size = height * py
-    x_coords = (np.arange(width) - width / 2) * px * 1e6
-    y_coords = (np.arange(height) - height / 2) * py * 1e6
-
-    # Calculate profiles
-    horizontal_profile = np.mean(intensity, axis=0)
-    vertical_profile = np.mean(intensity, axis=1)
-
-    # Create figure
-    fig, axes = plt.subplots(2, 2, figsize=(10, 8))
-    extent = [-x_size / 2 * 1e6, x_size / 2 * 1e6, -y_size / 2 * 1e6, y_size / 2 * 1e6]
-
-    # ===== Subplot 1: Intensity map =====
-    im = axes[0, 0].imshow(intensity, cmap="viridis", extent=extent, origin="lower")
-    plt.colorbar(im, ax=axes[0, 0], label="Intensity (a.u.)", fraction=0.046, pad=0.04)
-
-    # Add beam center marker and crosshairs
-    axes[0, 0].plot(beam_x_um, beam_y_um, "rx", markersize=10, label="Beam Center")
-    axes[0, 0].axhline(y=beam_y_um, color="r", linestyle="--", alpha=0.5)
-    axes[0, 0].axvline(x=beam_x_um, color="r", linestyle="--", alpha=0.5)
-
-    # Add FWHM ellipse
-    ellipse = plt.matplotlib.patches.Ellipse(
-        (beam_x_um, beam_y_um),
-        fwhm_x,
-        fwhm_y,
-        fill=False,
-        color="r",
-        linestyle="-",
-        linewidth=2,
-        label="Beam Size (FWHM)",
-    )
-    axes[0, 0].add_patch(ellipse)
-
-    # Add info text box
-    info_text = (
-        f"Beam Center: ({beam_x_um:.3f}, {beam_y_um:.3f}) µm\n"
-        f"FWHM X: {fwhm_x:.3f} µm\n"
-        f"FWHM Y: {fwhm_y:.3f} µm"
-    )
-    axes[0, 0].text(
-        0.02,
-        0.98,
-        info_text,
-        transform=axes[0, 0].transAxes,
-        va="top",
-        ha="left",
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
-    )
-
-    axes[0, 0].set_title(title)
-    axes[0, 0].set_xlabel("x (µm)")
-    axes[0, 0].set_ylabel("y (µm)")
-    axes[0, 0].legend(loc="lower right")
-
-    # ===== Subplot 2: Horizontal profile =====
-    if fit_params_x is not None:
-        amplitude_x, mean_x, sigma_x, offset_x = fit_params_x
-        normalized_h, _ = _normalize_profile(horizontal_profile)
-        fitted_curve_x = _gaussian_normalized(
-            x_coords, amplitude_x, mean_x, sigma_x, offset_x
-        )
-
-        axes[1, 0].plot(
-            x_coords, normalized_h, "bx", markersize=4, label="Data (norm.)"
-        )
-        axes[1, 0].plot(
-            x_coords, fitted_curve_x, "r--", linewidth=2, label="Gaussian fit"
-        )
-    else:
-        axes[1, 0].plot(x_coords, horizontal_profile, "bx", markersize=4, label="Data")
-
-    axes[1, 0].set_title(f"Horizontal Profile (FWHM = {fwhm_x:.3f} µm)")
-    axes[1, 0].set_xlabel("x (µm)")
-    axes[1, 0].set_ylabel("Intensity (norm.)")
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
-
-    # ===== Subplot 3: Vertical profile =====
-    if fit_params_y is not None:
-        amplitude_y, mean_y, sigma_y, offset_y = fit_params_y
-        normalized_v, _ = _normalize_profile(vertical_profile)
-        fitted_curve_y = _gaussian_normalized(
-            y_coords, amplitude_y, mean_y, sigma_y, offset_y
-        )
-
-        axes[0, 1].plot(
-            y_coords, normalized_v, "bx", markersize=4, label="Data (norm.)"
-        )
-        axes[0, 1].plot(
-            y_coords, fitted_curve_y, "r--", linewidth=2, label="Gaussian fit"
-        )
-    else:
-        axes[0, 1].plot(y_coords, vertical_profile, "bx", markersize=4, label="Data")
-
-    axes[0, 1].set_title(f"Vertical Profile (FWHM = {fwhm_y:.3f} µm)")
-    axes[0, 1].set_xlabel("y (µm)")
-    axes[0, 1].set_ylabel("Intensity (norm.)")
-    axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3)
-
-    # ===== Subplot 4: 3D surface =====
-    ax3d = fig.add_subplot(2, 2, 4, projection="3d")
-    x_mesh, y_mesh = np.meshgrid(x_coords, y_coords)
-    ax3d.plot_surface(x_mesh, y_mesh, intensity, cmap="viridis", alpha=0.8)
-    ax3d.set_title("3D Intensity Profile")
-    ax3d.set_xlabel("x (µm)")
-    ax3d.set_ylabel("y (µm)")
-    ax3d.set_zlabel("Intensity")
-
-    plt.tight_layout()
-    if save_path:
-        img_path = os.path.join(save_path, f"{title.split(' ')[0]}_beam_analysis.png")
-        plt.savefig(img_path, dpi=300, bbox_inches="tight")
-        print("MESSAGE: The beam analysis image is saved")
-        print("-" * 50)
-    plt.show()
-
-
-def analyze_focus_sampling_from_beam(
+def calc_focus_by_back_prop(
     amplitude: np.ndarray,
     dx: float,
     dy: float,
     wavelength: float,
-    propagation_distance: float,
     beam_size: Dict[str, float],
-    verbose: bool = True,
-) -> Tuple[float, float, float, float, float, float]:
+    propagation_distance_x: Optional[float] = None,
+    propagation_distance_y: Optional[float] = None,
+) -> Tuple[Dict[str, float], float, float, float, float]:
     """
     Calculate required focus sampling based on Gaussian beam propagation.
 
@@ -495,26 +301,33 @@ def analyze_focus_sampling_from_beam(
         dx: Pixel size in X direction at detector (m)
         dy: Pixel size in Y direction at detector (m)
         wavelength: X-ray wavelength (m)
-        propagation_distance: Distance from focus to detector (m, positive)
         beam_size: Dict with 'fwhm_x' and 'fwhm_y' at detector (m)
-        verbose: Whether to print status messages (default: True)
+        propagation_distance: Shared distance from focus to detector for both
+            axes, or a 2-item sequence ``(distance_x, distance_y)`` (m)
+        propagation_distance_x: Distance from focus to detector in X (m)
+        propagation_distance_y: Distance from focus to detector in Y (m)
 
     Returns:
-        Tuple of (dx_focus_x, dx_focus_y, divergence_x, divergence_y, w0_x, w0_y)
+        Tuple of ``(focus_size, divergence_x, divergence_y, dx_focus, dy_focus)``
         where:
+        - focus_size: Dict with ``fwhm_x`` and ``fwhm_y`` at focus (m)
         - dx_focus_x, dx_focus_y: Required pixel sizes at focus (m)
         - divergence_x, divergence_y: Beam divergence half-angles (rad)
-        - w0_x, w0_y: Beam waist radii at focus (m)
     """
+    distance_x = 0
+    distance_y = 0
+    if propagation_distance_x is not None or propagation_distance_y is not None:
+        if propagation_distance_x is None or propagation_distance_y is None:
+            raise ValueError(
+                "Provide both propagation_distance_x and propagation_distance_y "
+                "together."
+            )
+        distance_x = float(propagation_distance_x)
+        distance_y = float(propagation_distance_y)
+
     # Extract measured FWHM at detector
     fwhm_detector_x = beam_size["fwhm_x"]
     fwhm_detector_y = beam_size["fwhm_y"]
-
-    if verbose:
-        print(
-            f"Current FWHM: fwhm_x={fwhm_detector_x * 1e6:.3f} μm, "
-            f"fwhm_y={fwhm_detector_y * 1e6:.3f} μm"
-        )
 
     # =========================================================================
     # Step 1: Convert FWHM to 1/e² radius at detector
@@ -529,20 +342,26 @@ def analyze_focus_sampling_from_beam(
     # Solve: w(z)² = w₀² [1 + (z·λ/(π·w₀²))²] for w₀
     # This is a quartic equation in w₀, solved numerically
 
-    def gaussian_beam_equation(w0, w_z):
+    def gaussian_beam_equation(w0, w_z, distance):
         """
         Gaussian beam propagation equation residual.
 
         Returns zero when w0 satisfies: w(z)² = w₀²[1 + (z·λ/(π·w₀²))²]
         """
         rayleigh_range = np.pi * w0**2 / wavelength
-        propagation_factor = (propagation_distance / rayleigh_range) ** 2
+        propagation_factor = (distance / rayleigh_range) ** 2
         return w0**2 * (1 + propagation_factor) - w_z**2
 
     # Solve for beam waist in each direction
     # Initial guess: assume focus spot is ~100 nm (typical for X-ray focusing)
-    w0_x = fsolve(lambda w0: gaussian_beam_equation(w0, w_detector_x), x0=100e-9)[0]
-    w0_y = fsolve(lambda w0: gaussian_beam_equation(w0, w_detector_y), x0=100e-9)[0]
+    w0_x = fsolve(
+        lambda w0: gaussian_beam_equation(w0, w_detector_x, distance_x),
+        x0=100e-9,
+    )[0]
+    w0_y = fsolve(
+        lambda w0: gaussian_beam_equation(w0, w_detector_y, distance_y),
+        x0=100e-9,
+    )[0]
 
     # =========================================================================
     # Step 3: Calculate derived beam parameters
@@ -555,31 +374,9 @@ def analyze_focus_sampling_from_beam(
     divergence_x = wavelength / (np.pi * w0_x)
     divergence_y = wavelength / (np.pi * w0_y)
 
-    if verbose:
-        print("Focus beam waist:")
-        print(
-            f"  X: fwhm={fwhm_focus_x * 1e6:.3f} μm, w0={w0_x * 1e6:.3f} μm, "
-            f"divergence={divergence_x * 1e6:.3f} μrad"
-        )
-        print(
-            f"  Y: fwhm={fwhm_focus_y * 1e6:.3f} μm, w0={w0_y * 1e6:.3f} μm, "
-            f"divergence={divergence_y * 1e6:.3f} μrad"
-        )
-
-    # =========================================================================
-    # Step 4: Calculate required pixel size at focus
-    # =========================================================================
-
-    # Method 1: Magnification-based sampling
-    # ----------------------------------------
-    # Physical principle: The beam expands as it propagates from focus
-    # Magnification M = w(z) / w₀ (ratio of beam sizes at detector vs focus)
-    # To maintain same sampling quality: dx_focus = dx_detector / M
-    magnification_x = w_detector_x / w0_x
-    magnification_y = w_detector_y / w0_y
-
-    dx_mag = dx / magnification_x
-    dy_mag = dy / magnification_y
+    # # =========================================================================
+    # # Step 4: Calculate required pixel size at focus
+    # # ========================================================================
 
     # Method 2: Angular resolution sampling (Nyquist criterion)
     # ----------------------------------------
@@ -602,53 +399,15 @@ def analyze_focus_sampling_from_beam(
     angular_res_y = wavelength / (N_y * dy)
 
     # Spatial resolution at focus plane
-    dx_ang = angular_res_x * abs(propagation_distance)
-    dy_ang = angular_res_y * abs(propagation_distance)
+    dx_focus = angular_res_x * abs(distance_x)
+    dy_focus = angular_res_y * abs(distance_y)
 
-    # =========================================================================
-    # Display sampling analysis
-    # =========================================================================
-    if verbose:
-        print("\n" + "=" * 70)
-        print("FOCUS SAMPLING ANALYSIS")
-        print("=" * 70)
+    focus_size = {"fwhm_x": fwhm_focus_x, "fwhm_y": fwhm_focus_y}
 
-        print("\nDetector parameters:")
-        print(f"  Array size: {N_x} × {N_y} pixels")
-        print(f"  Pixel size: dx={dx * 1e6:.3f} μm, dy={dy * 1e6:.3f} μm")
-        print(f"  Field of view: {N_x * dx * 1e3:.3f} × {N_y * dy * 1e3:.3f} mm")
-
-        print("\nBeam magnification:")
-        print(
-            f"  M_x = {magnification_x:.3f}× (beam expanded {magnification_x:.3f} times in X)"
-        )
-        print(
-            f"  M_y = {magnification_y:.3f}× (beam expanded {magnification_y:.3f} times in Y)"
-        )
-
-        print("\nAngular resolution at detector:")
-        print(f"  Δθ_x = {angular_res_x * 1e6:.3f} μrad (λ/L_x)")
-        print(f"  Δθ_y = {angular_res_y * 1e6:.3f} μrad (λ/L_y)")
-
-        print("\nRequired pixel size at focus:")
-        print(
-            f"  Method 1 (Magnification): dx={dx_mag * 1e9:.3f} nm, dy={dy_mag * 1e9:.3f} nm"
-        )
-        print(
-            f"  Method 2 (Angular res.):  dx={dx_ang * 1e9:.3f} nm, dy={dy_ang * 1e9:.3f} nm"
-        )
-
-    # =========================================================================
-    # Step 5: Choose conservative (finer) sampling
-    # =========================================================================
-    # Use the smaller pixel size to ensure we don't undersample
-    dx_focus = min(dx_mag, dx_ang)
-    dy_focus = min(dy_mag, dy_ang)
-
-    if verbose:
-        print("\nSelected (conservative):")
-        print(f"  dx_focus = {dx_focus * 1e9:.3f} nm")
-        print(f"  dy_focus = {dy_focus * 1e9:.3f} nm")
-        print("=" * 70 + "\n")
-
-    return dx_focus, dy_focus, divergence_x, divergence_y, w0_x, w0_y
+    return (
+        focus_size,
+        divergence_x,
+        divergence_y,
+        dx_focus,
+        dy_focus,
+    )

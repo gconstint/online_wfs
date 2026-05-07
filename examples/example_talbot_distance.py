@@ -11,7 +11,6 @@ def main():
     # --- Parameters (same as phase_talbot_distance.py) ---
     params = load_quick_config("examples/params.json")
 
-
     # --- Main calculation ---
     energy_ev = params["p_energy"]
     grating_period = params["grating_period"]

@@ -196,77 +196,7 @@ def calculate_zernike_polynomial(j, rho, theta):
     return Z_normalized
 
 
-def calculate_zernike_polynomials(rho, theta, j_max):
-    """
-    Calculate Zernike polynomials up to j_max term (OSA/ANSI indexing).
-
-    Parameters:
-    -----------
-    rho : ndarray
-        Normalized radial coordinates (0 to 1).
-    theta : ndarray
-        Angular coordinates (0 to 2π).
-    j_max : int
-        Maximum Zernike polynomial index (OSA/ANSI 0-indexed).
-
-    Returns:
-    --------
-    dict: Dictionary with Zernike polynomials indexed by OSA/ANSI index j
-    """
-    zernike_polynomials = {}
-
-    for j in range(j_max + 1):
-        Z = calculate_zernike_polynomial(j, rho, theta)
-        zernike_polynomials[j] = Z
-
-    return zernike_polynomials
-
-
-def generate_zernike_basis(size, j_max=20):
-    """
-    Generate orthonormal Zernike basis functions using OSA/ANSI indexing.
-
-    Parameters:
-    -----------
-    size : int
-        Size of the square array.
-    j_max : int
-        Maximum OSA/ANSI index (default: 20 for first 21 terms).
-
-    Returns:
-    --------
-    tuple: (basis, indices)
-        - basis: List of normalized Zernike polynomials
-        - indices: List of OSA/ANSI indices j
-    """
-    # Create coordinate grids
-    y, x = np.mgrid[-size // 2 : size // 2, -size // 2 : size // 2]
-    rho = np.sqrt(x**2 + y**2) / (size // 2)
-    theta = np.arctan2(y, x)
-
-    # Unit circle mask
-    mask = rho <= 1.0
-
-    basis = []
-    indices = []
-
-    for j in range(j_max + 1):
-        # Calculate Zernike polynomial (already analytically normalized)
-        Z = calculate_zernike_polynomial(j, rho, theta)
-
-        # Apply mask (set outside unit circle to zero)
-        Z[~mask] = 0
-
-        # No additional normalization needed - polynomials are already normalized
-        basis.append(Z)
-        indices.append(j)
-
-    return basis, indices
-
-
-def fit_zernike_polynomials(
-    phase, basis, indices, wavelength=632.8e-9, weights=None, verbose=True
-):
+def fit_zernike_polynomials(phase, basis, indices, weights=None):
     """
     Fit phase data to Zernike basis using least squares.
 
@@ -278,12 +208,8 @@ def fit_zernike_polynomials(
         List of Zernike basis functions.
     indices : list
         List of corresponding OSA/ANSI indices.
-    wavelength : float
-        Wavelength in meters (for unit conversion).
     weights : ndarray, optional
         Weight map for weighted least squares fitting.
-    verbose : bool
-        Whether to print diagnostic messages (default: True).
 
     Returns:
     --------
@@ -322,7 +248,7 @@ def fit_zernike_polynomials(
         y = y * sqrt_w
 
     # Least squares fit
-    coefficients, residuals, rank, s = np.linalg.lstsq(basis_matrix, y, rcond=None)
+    coefficients, *_ = np.linalg.lstsq(basis_matrix, y, rcond=None)
 
     # Reconstruct fitted phase - preserve NaN mask
     fitted_phase_full = np.sum(
@@ -336,22 +262,22 @@ def fit_zernike_polynomials(
     # Calculate residual - will also have NaN where data is invalid
     residual = phase - fitted_phase
 
-    # Diagnostic: Check actual contribution of largest coefficient
-    if verbose and len(coefficients) > 0:
-        max_idx = np.argmax(np.abs(coefficients))
-        max_coeff = coefficients[max_idx]
-        max_basis_contribution = max_coeff * basis[max_idx]
-        print("\n  Zernike fitting diagnostics:")
-        print(f"    Largest coefficient: Z{indices[max_idx]} = {max_coeff:.6f} rad")
-        print(
-            f"    Its basis function range: [{np.nanmin(basis[max_idx]):.6f}, {np.nanmax(basis[max_idx]):.6f}]"
-        )
-        print(
-            f"    Its phase contribution range: [{np.nanmin(max_basis_contribution):.6f}, {np.nanmax(max_basis_contribution):.6f}] rad"
-        )
-        print(
-            f"    Fitted phase total range: [{np.nanmin(fitted_phase):.6f}, {np.nanmax(fitted_phase):.6f}] rad"
-        )
+    # # Diagnostic: Check actual contribution of largest coefficient
+    # if len(coefficients) > 0:
+    #     max_idx = np.argmax(np.abs(coefficients))
+    #     max_coeff = coefficients[max_idx]
+    #     max_basis_contribution = max_coeff * basis[max_idx]
+    #     print("\n  Zernike fitting diagnostics:")
+    #     print(f"    Largest coefficient: Z{indices[max_idx]} = {max_coeff:.6f} rad")
+    #     print(
+    #         f"    Its basis function range: [{np.nanmin(basis[max_idx]):.6f}, {np.nanmax(basis[max_idx]):.6f}]"
+    #     )
+    #     print(
+    #         f"    Its phase contribution range: [{np.nanmin(max_basis_contribution):.6f}, {np.nanmax(max_basis_contribution):.6f}] rad"
+    #     )
+    #     print(
+    #         f"    Fitted phase total range: [{np.nanmin(fitted_phase):.6f}, {np.nanmax(fitted_phase):.6f}] rad"
+    #     )
 
     return coefficients, fitted_phase, residual
 
@@ -376,34 +302,33 @@ def analyze_aberrations(coefficients, indices, wavelength=632.8e-9):
     aberration_analysis = {}
 
     for i, (coeff, j) in enumerate(zip(coefficients, indices)):
-        if abs(coeff) > 1e-12:  # Only include non-zero terms
-            n, m = osa_to_nm(j)
-            aberration_name = get_zernike_name(j)
+        n, m = osa_to_nm(j)
+        aberration_name = get_zernike_name(j)
 
-            # Convert coefficient to different units
-            coefficient_rad = float(coeff)
-            coefficient_waves = coefficient_rad / (2 * np.pi)
-            coefficient_nm = coefficient_rad * wavelength / (2 * np.pi) * 1e9
+        # Convert coefficient to different units
+        coefficient_rad = float(coeff)
+        coefficient_waves = coefficient_rad / (2 * np.pi)
+        coefficient_nm = coefficient_rad * wavelength / (2 * np.pi) * 1e9
 
-            # Calculate RMS contribution
-            # For OSA/ANSI normalized Zernike polynomials:
-            # ∫∫ Z_j² dA = π (over unit disk of area π)
-            # So variance = ∫∫ (c_j × Z_j)² dA / (π) = c_j² × π / π = c_j²
-            # Therefore RMS contribution of term j = |c_j|
-            rms_rad = abs(coeff)
-            rms_nm = rms_rad * wavelength / (2 * np.pi) * 1e9
+        # Calculate RMS contribution
+        # For OSA/ANSI normalized Zernike polynomials:
+        # ∫∫ Z_j² dA = π (over unit disk of area π)
+        # So variance = ∫∫ (c_j × Z_j)² dA / (π) = c_j² × π / π = c_j²
+        # Therefore RMS contribution of term j = |c_j|
+        rms_rad = abs(coeff)
+        rms_nm = rms_rad * wavelength / (2 * np.pi) * 1e9
 
-            aberration_analysis[f"Z{j}"] = {
-                "osa_index": j,
-                "name": aberration_name,
-                "n": n,
-                "m": m,
-                "coefficient_rad": coefficient_rad,
-                "coefficient_waves": float(coefficient_waves),
-                "coefficient_nm": float(coefficient_nm),
-                "rms_rad": float(rms_rad),
-                "rms_nm": float(rms_nm),
-            }
+        aberration_analysis[f"Z{j}"] = {
+            "osa_index": j,
+            "name": aberration_name,
+            "n": n,
+            "m": m,
+            "coefficient_rad": coefficient_rad,
+            "coefficient_waves": float(coefficient_waves),
+            "coefficient_nm": float(coefficient_nm),
+            "rms_rad": float(rms_rad),
+            "rms_nm": float(rms_nm),
+        }
 
     return aberration_analysis
 
@@ -412,7 +337,7 @@ def perform_zernike_analysis(
     phase,
     pixel_size,
     wavelength,
-    num_terms=21,
+    num_terms=36,
     save_dir=None,
     aperture_center=None,
     aperture_radius_fraction=1.0,
@@ -420,7 +345,6 @@ def perform_zernike_analysis(
     tukey_alpha=0.5,
     zero_zernike_indices=None,
     phase_unit="radians",  # "radians" or "meters"
-    verbose=True,
 ):
     """
     Perform comprehensive Zernike aberration analysis on phase data.
@@ -434,7 +358,7 @@ def perform_zernike_analysis(
     wavelength : float
         Wavelength in meters.
     num_terms : int
-        Number of Zernike terms to fit (default: 21 for j=0 to j=20).
+        Number of Zernike terms to fit (default: 36 for j=0 to j=35).
     save_dir : str, optional
         Directory to save analysis results.
     aperture_center : tuple, optional
@@ -451,8 +375,6 @@ def perform_zernike_analysis(
         Unit of the input phase map. 'radians' or 'meters'.
         If 'meters', it will be converted to radians using the wavelength.
         Default is 'radians'.
-    verbose : bool
-        Whether to print status messages (default: True).
 
     Returns:
     --------
@@ -463,15 +385,14 @@ def perform_zernike_analysis(
 
     # Handle unit conversion
     if phase_unit.lower() == "meters":
-        if verbose:
-            print(
-                f"Converting phase from meters to radians (wavelength={wavelength:.3e} m)"
-            )
+        print(
+            f"Converting phase from meters to radians (wavelength={wavelength:.3e} m)"
+        )
         phase = phase * 2 * np.pi / wavelength
     elif phase_unit.lower() == "radians":
         # Check if values look suspiciously small (like meters)
         phase_range = np.nanmax(phase) - np.nanmin(phase)
-        if verbose and phase_range < 1e-4 and phase_range > 0:
+        if phase_range < 1e-4 and phase_range > 0:
             print(
                 f"WARNING: Input phase range is very small ({phase_range:.3e}). "
                 f"Are you sure the input is in radians? If it is in meters, set phase_unit='meters'."
@@ -511,13 +432,15 @@ def perform_zernike_analysis(
     # Copy phase for processing
     phase_processed = phase.copy()
 
-    # Generate Zernike basis using the SAME rho/theta grids as the aperture mask
+    # Generate Zernike basis directly on the analysis grid so the basis uses the
+    # same aperture center and radius as the actual fit.
     theta = np.arctan2(yy - cy, xx - cx)
 
     basis = []
     indices = []
     for j in range(j_max + 1):
         Z = calculate_zernike_polynomial(j, rho, theta)
+        # Set values outside unit circle to 0 (rho > 1 means outside aperture)
         Z[rho > 1.0] = 0
         basis.append(Z)
         indices.append(j)
@@ -528,16 +451,26 @@ def perform_zernike_analysis(
         r = rho.copy()
         a = float(tukey_alpha)
         w_r = np.ones_like(r)
+        # Fade region: r in [1-a, 1]
         edge_region = (r >= 1 - a) & (r <= 1)
         w_r[edge_region] = 0.5 * (1 + np.cos(np.pi * (r[edge_region] - (1 - a)) / a))
         w_r[r > 1] = 0.0
         weights = w_r * aperture_mask.astype(float)
 
+    projected_coefficients = None
+
     # Optional: project out specified Zernike modes
     if zero_zernike_indices is not None:
         remove_indices = [i for i, j in enumerate(indices) if j in zero_zernike_indices]
         if remove_indices:
-            mask_flat = aperture_mask.flatten()
+            projection_mask = aperture_mask & np.isfinite(phase_processed)
+            mask_flat = projection_mask.flatten()
+            if np.count_nonzero(mask_flat) < len(remove_indices):
+                raise ValueError(
+                    "Not enough valid data points to project out the requested "
+                    f"Zernike modes: {np.count_nonzero(mask_flat)} valid points "
+                    f"for {len(remove_indices)} modes"
+                )
             B_remove = np.array(
                 [basis[i].flatten()[mask_flat] for i in remove_indices]
             ).T
@@ -549,15 +482,36 @@ def perform_zernike_analysis(
                 B_remove = B_remove * sqrt_w[:, None]
                 y_vec = y_vec * sqrt_w
             coeffs_remove, _, _, _ = np.linalg.lstsq(B_remove, y_vec, rcond=None)
+            projected_coefficients = {
+                indices[idx_rm]: float(coeff)
+                for coeff, idx_rm in zip(coeffs_remove, remove_indices)
+            }
             removal_map = np.zeros_like(phase_processed)
             for coeff, idx_rm in zip(coeffs_remove, remove_indices):
                 removal_map += coeff * basis[idx_rm]
             phase_processed = phase_processed - removal_map
 
-    # Fit Zernike polynomials
-    coefficients, fitted_phase, residual = fit_zernike_polynomials(
-        phase_processed, basis, indices, wavelength, weights=weights, verbose=verbose
+    # Fit Zernike polynomials. When low-order modes were explicitly projected
+    # out, fit only the remaining modes so they cannot leak back in through the
+    # discrete weighted solve.
+    if zero_zernike_indices is not None:
+        fit_positions = [i for i, j in enumerate(indices) if j not in zero_zernike_indices]
+    else:
+        fit_positions = list(range(len(indices)))
+
+    fit_basis = [basis[i] for i in fit_positions]
+    fit_indices = [indices[i] for i in fit_positions]
+
+    coefficients_fit, fitted_phase, residual = fit_zernike_polynomials(
+        phase_processed, fit_basis, fit_indices, weights=weights
     )
+
+    if zero_zernike_indices is not None:
+        coefficients = np.zeros(len(indices), dtype=np.float64)
+        for coeff, pos in zip(coefficients_fit, fit_positions):
+            coefficients[pos] = coeff
+    else:
+        coefficients = coefficients_fit
 
     # Calculate RMS error (use nanmean to handle NaN values)
     residual_valid = residual[aperture_mask]
@@ -585,6 +539,8 @@ def perform_zernike_analysis(
             "rms_error_nm": float(rms_error_nm),
             "aberration_analysis": aberration_analysis,
         }
+        if projected_coefficients is not None:
+            results["projected_out_coefficients"] = projected_coefficients
         with open(os.path.join(save_dir, "zernike_fit_results.json"), "w") as f:
             json.dump(results, f, indent=2)
 
@@ -608,7 +564,6 @@ def visualize_zernike_analysis(
     title="Zernike Aberration Analysis",
     save_path=None,
     max_display_terms=None,
-    verbose=True,
 ):
     """
     Visualize Zernike fitting results with comprehensive plots.
@@ -635,21 +590,21 @@ def visualize_zernike_analysis(
         Default is None.
     max_display_terms : int, optional
         Maximum number of Zernike terms to display in bar chart. If None,
-        displays min(num_aberrations, 21) terms. Default is None.
-    verbose : bool
-        Whether to print diagnostic messages (default: True).
+        displays all fitted terms. Default is None.
     """
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
 
-    # Set font to Times New Roman
-    plt.rcParams["font.family"] = "Times New Roman"
-    plt.rcParams["font.size"] = 11
-    plt.rcParams["axes.labelsize"] = 12
-    plt.rcParams["axes.titlesize"] = 13
-    plt.rcParams["xtick.labelsize"] = 10
-    plt.rcParams["ytick.labelsize"] = 10
-    plt.rcParams["legend.fontsize"] = 10
+    # Sort aberrations by OSA index (order)
+    sorted_aberrations = sorted(
+        aberration_analysis.items(),
+        key=lambda x: x[1]["osa_index"],
+    )
+
+    if max_display_terms is None:
+        num_display = len(sorted_aberrations)
+    else:
+        num_display = min(max_display_terms, len(sorted_aberrations))
 
     # Convert to nanometers for display
     phase_nm = phase * wavelength / (2 * np.pi) * 1e9
@@ -657,21 +612,19 @@ def visualize_zernike_analysis(
     residual_nm = residual * wavelength / (2 * np.pi) * 1e9
 
     # Print diagnostics
-    if verbose:
-        print("\n  Visualization diagnostics:")
-        print(
-            f"    Phase range: [{np.nanmin(phase_nm):.3f}, {np.nanmax(phase_nm):.3f}] nm"
-        )
-        print(
-            f"    Fitted range: [{np.nanmin(fitted_nm):.3f}, {np.nanmax(fitted_nm):.3f}] nm"
-        )
-        print(
-            f"    Residual range: [{np.nanmin(residual_nm):.3f}, {np.nanmax(residual_nm):.3f}] nm"
-        )
+    print("\n  Visualization diagnostics:")
+    print(f"    Phase range: [{np.nanmin(phase_nm):.3f}, {np.nanmax(phase_nm):.3f}] nm")
+    print(
+        f"    Fitted range: [{np.nanmin(fitted_nm):.3f}, {np.nanmax(fitted_nm):.3f}] nm"
+    )
+    print(
+        f"    Residual range: [{np.nanmin(residual_nm):.3f}, {np.nanmax(residual_nm):.3f}] nm"
+    )
 
     # Create figure with custom layout
     # Use width_ratios to give more space to the bar chart (left side)
-    fig = plt.figure(figsize=(18, 12))
+    fig_height = max(12.0, 6.0 + 0.28 * num_display)
+    fig = plt.figure(figsize=(18, fig_height))
     gs = GridSpec(2, 3, figure=fig)
 
     # Color limits
@@ -736,30 +689,15 @@ def visualize_zernike_analysis(
     # Plot 4: Aberration Bar Chart
     ax4 = fig.add_subplot(gs[1, :2])
 
-    # Sort aberrations by OSA index (order)
-    sorted_aberrations = sorted(
-        aberration_analysis.items(),
-        key=lambda x: x[1]["osa_index"],  # Sort by OSA index
-    )
-
-    # Determine how many terms to display
-    if max_display_terms is None:
-        # Default: show min(total_aberrations, 21) terms
-        num_display = min(len(sorted_aberrations), 21)
-    else:
-        num_display = min(max_display_terms, len(sorted_aberrations))
-
     list_aberrations = sorted_aberrations[:num_display]
     labels = [f"{aberr['name']}:Z{aberr['osa_index']}" for _, aberr in list_aberrations]
     rms_values = [aberr["rms_nm"] for _, aberr in list_aberrations]
 
-    bars = ax4.barh(
-        range(len(labels)), rms_values, color="steelblue", edgecolor="black"
-    )
+    ax4.barh(range(len(labels)), rms_values, color="steelblue", edgecolor="black")
     ax4.set_yticks(range(len(labels)))
     ax4.set_yticklabels(labels, fontsize=9)
     ax4.set_xlabel("RMS Contribution (nm)")
-    ax4.set_title("Zernike Coefficients (by order)")
+    ax4.set_title(f"Zernike Coefficients (all {num_display} terms, by order)")
     ax4.grid(axis="x", alpha=0.3)
     ax4.invert_yaxis()
 
@@ -806,7 +744,6 @@ def visualize_zernike_analysis(
         transform=ax5.transAxes,
         fontsize=10,
         verticalalignment="top",
-        fontfamily="Times New Roman",
         bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
     )
 
@@ -827,11 +764,10 @@ def analyze_and_visualize_zernike(
     phase,
     pixel_size,
     wavelength,
-    num_terms=21,
+    num_terms=36,
     save_dir=None,
     show_plots=True,
     save_path=None,
-    verbose=True,
     **kwargs,
 ):
     """
@@ -859,8 +795,6 @@ def analyze_and_visualize_zernike(
         Directory path to save the visualization figure. The image will be saved as
         'zernike_analysis.png' in this directory. If None, figure is not saved.
         Default is None.
-    verbose : bool
-        Whether to print status messages (default: True).
     **kwargs : dict
         Additional arguments passed to perform_zernike_analysis.
 
@@ -868,10 +802,9 @@ def analyze_and_visualize_zernike(
     --------
     dict: Complete analysis results including coefficients and aberrations
     """
-    if verbose:
-        print("\n" + "=" * 70)
-        print("ZERNIKE ABERRATION ANALYSIS")
-        print("=" * 70)
+    print("\n" + "=" * 70)
+    print("ZERNIKE ABERRATION ANALYSIS")
+    print("=" * 70)
 
     # Perform Zernike fitting
     (
@@ -887,38 +820,35 @@ def analyze_and_visualize_zernike(
         wavelength=wavelength,
         num_terms=num_terms,
         save_dir=save_dir,
-        verbose=verbose,
         **kwargs,
     )
 
     # Display summary
-    if verbose:
-        print("\nZernike fitting completed:")
-        print(f"  Number of terms: {num_terms}")
-        print(
-            f"  RMS residual: {rms_error:.4f} rad = {rms_error * wavelength / (2 * np.pi) * 1e9:.3f} nm"
-        )
+    print("\nZernike fitting completed:")
+    print(f"  Number of terms: {num_terms}")
+    print(
+        f"  RMS residual: {rms_error:.4f} rad = {rms_error * wavelength / (2 * np.pi) * 1e9:.3f} nm"
+    )
 
-        # Display top aberrations
-        print("\nTop aberrations (by RMS contribution):")
-        print("-" * 70)
+    # Display top aberrations
+    print("\nFitted Zernike terms:")
+    print("-" * 70)
 
-        # Sort by RMS magnitude
-        sorted_aberrations = sorted(
-            aberration_analysis.items(), key=lambda x: abs(x[1]["rms_nm"]), reverse=True
-        )
+    # Sort by OSA index so the full coefficient list follows the standard order.
+    sorted_aberrations = sorted(
+        aberration_analysis.items(), key=lambda x: x[1]["osa_index"]
+    )
 
-        # Display top 16
-        print(f"{'Index':<8} {'Name':<30} {'Coeff (nm)':<15} {'RMS (nm)':<12}")
-        print("-" * 70)
-        for key, aberr in sorted_aberrations[:16]:
-            j = aberr["osa_index"]
-            name = aberr["name"]
-            coeff_nm = aberr["coefficient_nm"]
-            rms_nm = aberr["rms_nm"]
-            print(f"Z{j:<7} {name:<30} {coeff_nm:>12.3f}   {rms_nm:>10.3f}")
+    print(f"{'Index':<8} {'Name':<30} {'Coeff (nm)':<15} {'RMS (nm)':<12}")
+    print("-" * 70)
+    for key, aberr in sorted_aberrations:
+        j = aberr["osa_index"]
+        name = aberr["name"]
+        coeff_nm = aberr["coefficient_nm"]
+        rms_nm = aberr["rms_nm"]
+        print(f"Z{j:<7} {name:<30} {coeff_nm:>12.3f}   {rms_nm:>10.3f}")
 
-        print("=" * 70 + "\n")
+    print("=" * 70 + "\n")
 
     # Visualization
     if show_plots:
@@ -931,8 +861,7 @@ def analyze_and_visualize_zernike(
             pixel_size,
             title="Zernike Aberration Analysis",
             save_path=save_path,
-            max_display_terms=num_terms,  # Display same number as fitted
-            verbose=verbose,
+            max_display_terms=None,
         )
 
     # Return comprehensive results

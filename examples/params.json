@@ -7,14 +7,12 @@
     "g_period": 18.38e-6,
     "g_angle": 45,
 
-    "image_path": "data/sample.tif",
+    "image_path": "../online_wfs/online_wfs/data/sample.tif",
     "dark_image_path": null,
     "flat_image_path": null,
     
     "rotation_angle": null,
-    "lowpass_cutoff": 0.35,
     "do_rotation": false,
-    "parallel": true,
 
     "__others__": null,
     "verbose": false,
