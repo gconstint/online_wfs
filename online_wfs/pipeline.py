@@ -338,6 +338,7 @@ def task(
         {
             "beam_size": beam_size,
             "focus_size": focus_size,
+            "phase_error": phase_error,
         },
     )
 
