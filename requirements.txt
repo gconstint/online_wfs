@@ -1,15 +1,4 @@
-# Core scientific computing
-numpy
-scipy
-
-# Image processing
-Pillow
-opencv-python
-scikit-image
+# Unattended reconstruction runtime; optional tools are pyproject.toml extras.
+numpy>=1.24
+scipy>=1.10
 tifffile
-
-# Visualization
-matplotlib
-
-# Utilities
-tqdm

@@ -1,33 +1,27 @@
-# -*- coding: utf-8 -*-
-from online_wfs.config import load_quick_config
-from online_wfs.pipeline import task
-from pprint import pprint
+"""Process the packaged sample: python -m examples.example_pipeline."""
+
+import numpy as np
+
+from online_wfs import Pipeline
+from online_wfs.data import load_sample
 
 
 def main():
-    """
-    Example usage of the online_wfs package.
-    """
-
-    # STEP 0: load parameters from config file
-    params = load_quick_config("examples/params.json")
-
-    # STEP 1: Run the pipeline
-    for checkpoint_name, result in task(params):
-        if checkpoint_name == "focus_distances":
-            print("Source distance (m)(X/Y):", result["R_x_m"], result["R_y_m"])
-
-        if checkpoint_name == "beam_analysis":
-            print(
-                "Beam size (m)(X/Y):",
-                result["beam_size"],
-            )
-            print(
-                "Focus size (m)(X/Y):",
-                result["focus_size"],
-            )
-        if checkpoint_name == "aberration_analysis":
-            pprint(result["coefficient_table"])
+    image, params = load_sample()
+    processor = Pipeline(params)
+    result = processor.process(image)
+    print(
+        "Horizontal/vertical DPC shape:", result["dpc_x"].shape, result["dpc_y"].shape
+    )
+    print("Phase error RMS (rad):", np.nanstd(result["phase_error"]))
+    print(
+        "Residual phase RMS (rad):", np.sqrt(np.nanmean(result["residual_phase"] ** 2))
+    )
+    print(
+        "Focus distance X/Y (m):",
+        result["focus_distance_x_m"],
+        result["focus_distance_y_m"],
+    )
 
 
 if __name__ == "__main__":

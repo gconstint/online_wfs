@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from numpy.fft import fft2, fftshift
 
@@ -62,7 +61,7 @@ def find_peak_in_region(img_fft, theoretical_idx, search_region):
 def calculate_contrast(
     img: np.ndarray,
     pixel_size: list[float],
-    g_period: float,
+    grating_period: float,
     source_dist: float,
     det2sample: float,
     search_region: int | list[int] | None = None,
@@ -74,7 +73,7 @@ def calculate_contrast(
     Args:
         img (ndarray): Input image.
         pixel_size (list[float]): Detector pixel size [vert, hor] in meters (m).
-        g_period (float): Grating period in meters (m).
+        grating_period (float): Grating period in meters (m).
         source_dist (float): Source-to-grating distance in meters (m).
         det2sample (float): Detector-to-sample distance in meters (m).
         search_region (int or list[int], optional): Peak-search region size,
@@ -85,7 +84,7 @@ def calculate_contrast(
         float: Visibility/contrast value of the grating fringes.
     """
     # TODO: normalize the input parameter conventions
-    pattern_period = g_period * (det2sample + source_dist) / source_dist
+    pattern_period = grating_period * (det2sample + source_dist) / source_dist
     # pixel_size = [pixel_size, pixel_size]
     init_periods = calculate_harmonic_periods(img.shape, pixel_size, pattern_period)
 
@@ -147,6 +146,8 @@ def calculate_contrast(
 
     # 5. Visualize the result
     if plot_flag:
+        import matplotlib.pyplot as plt
+
         plt.figure(figsize=(10, 8))
         plt.imshow(np.log10(np.abs(img_fft)), cmap="inferno")
 

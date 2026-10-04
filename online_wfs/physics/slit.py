@@ -67,6 +67,3 @@ def main_lobe_width_um(
     slit_m = slit_um * 1e-6
     width_m = lam * distance_m / slit_m
     return width_m * 1e6
-
-
-

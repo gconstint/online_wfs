@@ -1,23 +1,34 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "online-wfs"
-version = "0.1.0"
-description = "X-ray Grating Interferometry (XGI) Wavefront Sensor pipeline"
+version = "0.4.1"
+description = "Unattended absolute SGI wavefront reconstruction"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-  "numpy",
-  "scipy",
-  "Pillow",
-  "opencv-python",
-  "scikit-image",
-  "matplotlib",
-  "tqdm",
+  "numpy>=1.24",
+  "scipy>=1.10",
   "tifffile",
 ]
 
+[project.optional-dependencies]
+rotation = ["opencv-python"]
+plots = ["matplotlib"]
+dev = ["ruff", "build"]
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.package-data]
+"online_wfs.data" = ["*.tif", "*.json"]
+
 [tool.setuptools.packages.find]
 include = ["online_wfs*"]
+where = ["."]
+namespaces = false
+
+[tool.ruff]
+target-version = "py310"

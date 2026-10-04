@@ -53,11 +53,10 @@ Icon
 __pycache__
 core/__pycache__
 
-output
+/output/
 .worktrees/
 
 *.prof
 
 .claude
 .pytest_cache/
-tests

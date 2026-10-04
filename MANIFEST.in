@@ -1,1 +1,11 @@
 include README.md
+include pyproject.toml
+recursive-include online_wfs *.py
+recursive-include online_wfs/data *.tif *.json
+include main.py
+recursive-include tools *.py
+prune output
+prune benchmarks
+prune examples
+prune docs
+global-exclude __pycache__ *.py[cod] .DS_Store

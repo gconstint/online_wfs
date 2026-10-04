@@ -1,11 +1,14 @@
-from online_wfs.func.calculate_slit_size import (
+"""Calculate a slit opening: python -m examples.example_slit_size."""
+
+from online_wfs.physics.slit import (
     slit_size_from_detector_um,
     calculate_wavelength,
 )
 
-if __name__ == "__main__":
-    p_energy = 9000  # photon energy in eV
-    distance_m = 154.2  # slit -> sensor distance
+
+def main():
+    p_energy = 10000  # Photon energy in eV.
+    distance_m = 154.2  # Slit-to-detector distance in m.
     pixel_size_um = 0.48
     resolution = 5048
     target_fraction = 1.0
@@ -28,3 +31,7 @@ if __name__ == "__main__":
     print(f"Target fraction       : {target_fraction:.0%}")
     print(f"Target width          : {target_width_um:.2f} um")
     print(f"Slit size             : {slit_um:.2f} um")
+
+
+if __name__ == "__main__":
+    main()
