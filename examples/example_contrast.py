@@ -1,7 +1,7 @@
 """Measure sample fringe contrast: python -m examples.example_contrast."""
 
-from online_wfs.data import load_sample
 from online_wfs.physics.contrast import calculate_contrast
+from tools.io import load_sample
 
 
 def main():
@@ -14,7 +14,6 @@ def main():
         params["source_dist"],
         params["det2sample"],
         search_region=None,
-        plot_flag=False,
     )
     print(f"Mean fringe contrast: {contrast:.6g}")
 

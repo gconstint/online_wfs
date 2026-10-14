@@ -1,14 +1,8 @@
-"""Detector preprocessing without interaction or input-array mutation."""
+"""Detector-array corrections without file access or input-array mutation."""
 
 import numpy as np
-import tifffile
 
 from .core.arrays import validate_image
-
-
-def load_image(path):
-    """Read one TIFF detector or calibration frame."""
-    return tifffile.imread(path)
 
 
 def preprocess_image(image, *, dark=None, flat=None, rotation_angle=0.0):

@@ -1,20 +1,13 @@
 """Calculate Talbot distances: python -m examples.example_talbot_distance."""
 
-from importlib.resources import files
-import json
-
-from online_wfs.config import load_config
-from online_wfs.physics.talbot import (
-    calculate_wavelength,
-    print_infos,
-    print_talbot_distance,
-)
+from online_wfs.physics.talbot import calculate_wavelength
+from tools.io import load_sample_config
+from tools.print_talbot import print_talbot_distance
 
 
 def main():
     """Use the packaged physical configuration without loading the detector image."""
-    config = files("online_wfs.data").joinpath("params.json")
-    params = load_config(json.loads(config.read_text(encoding="utf-8")))
+    params = load_sample_config()
 
     energy_ev = params["p_energy"]
     grating_period = params["grating_period"]
@@ -23,9 +16,7 @@ def main():
     source_dist = params["source_dist"]
     talbot_orders = range(1, 30, 2)  # Odd orders: 1, 3, 5, ..., 29
 
-    print_infos(energy_ev, wavelength, grating_period, eta, source_dist)
     print_talbot_distance(grating_period, wavelength, eta, source_dist, talbot_orders)
-    print("=" * 65)
 
 
 if __name__ == "__main__":

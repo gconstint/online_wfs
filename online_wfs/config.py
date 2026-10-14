@@ -1,8 +1,6 @@
 """Minimal physical configuration; numerical controls are internal defaults."""
 
-import json
 from collections.abc import Mapping
-from pathlib import Path
 
 import numpy as np
 
@@ -10,13 +8,23 @@ from .core.arrays import normalize_pixel_size
 from .defaults import RECONSTRUCTION_DEFAULTS
 from .physics.wavelength import calculate_wavelength
 
-_PATH_KEYS = ("image_path", "dark_image_path", "flat_image_path")
-
 
 def normalize_config(params):
     """Validate five physical inputs and derive optics without changing inputs."""
     if not isinstance(params, Mapping):
         raise ValueError("configuration must be a mapping")
+    if any(
+        params.get(key)
+        for key in (
+            "image_path",
+            "dark_image_path",
+            "flat_image_path",
+            "flat_valid_mask_path",
+        )
+    ):
+        raise ValueError(
+            "file paths are unsupported; supply physical parameters and image arrays"
+        )
     if any(
         key in params
         for key in (
@@ -54,37 +62,26 @@ def normalize_config(params):
     result.update(g_angle=angle, rotation_angle=rotation)
     result["wavelength"] = calculate_wavelength(result["p_energy"])
     result["total_dist"] = result["source_dist"] + result["det2sample"]
-    result["grating_period"] = result["g_period"] / (
-        np.sqrt(2) if np.isclose(angle, 45.0) else 2
+    result["grating_period"] = result["g_period"] * (
+        np.sqrt(0.5) if np.isclose(angle, 45.0) else 0.5
     )
-    result["pattern_period"] = (
-        result["grating_period"] * result["total_dist"] / result["source_dist"]
+    result["pattern_period"] = result["grating_period"] * (
+        result["total_dist"] / result["source_dist"]
     )
-    result.update({key: params.get(key) for key in _PATH_KEYS})
     result.update(RECONSTRUCTION_DEFAULTS)
+    offsets = np.asarray(params.get("carrier_phase_offset_rad", (0.0, 0.0)), float)
+    if offsets.shape != (2,) or not np.all(np.isfinite(offsets)):
+        raise ValueError(
+            "carrier_phase_offset_rad must contain two finite [x,y] radians"
+        )
+    # Numerical phase origins may describe a crop of a larger detector frame.
+    result["carrier_phase_offset_rad"] = tuple(map(float, offsets))
+    for key, choices in (
+        ("phase_cleanup", ("none", "tilt_xy")),
+        ("beam_width_method", ("gaussian_profile", "gaussian_envelope")),
+    ):
+        value = params.get(key, result[key])
+        if value not in choices:
+            raise ValueError(f"{key} must be one of {choices}")
+        result[key] = value
     return result
-
-
-def load_config(source, *, base_dir=None):
-    """Load a mapping or JSON; resolve JSON image paths relative to that file.
-
-    An explicit base_dir overrides the JSON directory. Mapping paths otherwise
-    retain their working-directory meaning. Threshold/ROI keys cannot override
-    the fixed online policy.
-    """
-    if isinstance(source, Mapping):
-        raw = source
-    else:
-        config_path = Path(source).expanduser().resolve()
-        with config_path.open(encoding="utf-8") as handle:
-            raw = json.load(handle)
-        if base_dir is None:
-            base_dir = config_path.parent
-    params = normalize_config(raw)
-    for key in _PATH_KEYS:
-        if params[key]:
-            path = Path(params[key]).expanduser()
-            if base_dir is not None and not path.is_absolute():
-                path = Path(base_dir).expanduser().resolve() / path
-            params[key] = str(path)
-    return params

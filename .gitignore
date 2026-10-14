@@ -54,9 +54,13 @@ __pycache__
 core/__pycache__
 
 /output/
+/tools/
+/reconstructions/
+/tests/
+/docs/
+
 .worktrees/
 
 *.prof
 
-.claude
 .pytest_cache/

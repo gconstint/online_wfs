@@ -1,4 +1,4 @@
 # Unattended reconstruction runtime; optional tools are pyproject.toml extras.
 numpy>=1.24
 scipy>=1.10
-tifffile
+scikit-image>=0.21

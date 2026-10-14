@@ -1,93 +1,81 @@
-"""OSA Zernike fitting on the reconstruction circle, with a cached projector."""
+"""Blockwise 36-term OSA/ANSI fitting on the measured circular support."""
+
+from math import factorial
 
 import numpy as np
-from scipy.linalg import svd
-from scipy.special import factorial
 
-from ..core.arrays import circular_domain, normalize_pixel_size
+from ..core.arrays import coordinate_grid
 from ..defaults import ZERNIKE_NUM_TERMS, ZERNIKE_TUKEY_ALPHA
 
 
-def zernike_polynomial(index, rho, theta):
-    """Evaluate an OSA/ANSI normalized polynomial by its zero-based index."""
-    n = 0
-    while (n + 1) * (n + 2) / 2 <= index:
-        n += 1
-    m = 2 * index - n * (n + 2)
-    radial = np.zeros_like(rho)
-    for k in range((n - abs(m)) // 2 + 1):
-        coefficient = (-1) ** k * factorial(n - k)
-        coefficient /= (
-            factorial(k)
-            * factorial((n + abs(m)) // 2 - k)
-            * factorial((n - abs(m)) // 2 - k)
-        )
-        radial += coefficient * rho ** (n - 2 * k)
-    angular = np.cos(m * theta) if m > 0 else np.sin(abs(m) * theta) if m < 0 else 1.0
-    return (radial * angular) * np.sqrt(2 * (n + 1) if m != 0 else n + 1)
+def zernike_basis(rho, theta, terms):
+    """OSA/ANSI j=0..terms-1 with unit-disk RMS normalization."""
+    basis = np.empty((rho.size, terms))
+    for j in range(terms):
+        n = 0
+        while (n + 1) * (n + 2) // 2 <= j:
+            n += 1
+        m = 2 * j - n * (n + 2)
+        radial = np.zeros_like(rho)
+        for k in range((n - abs(m)) // 2 + 1):
+            coefficient = (
+                (-1) ** k
+                * factorial(n - k)
+                / (
+                    factorial(k)
+                    * factorial((n + abs(m)) // 2 - k)
+                    * factorial((n - abs(m)) // 2 - k)
+                )
+            )
+            radial += coefficient * rho ** (n - 2 * k)
+        angular = np.cos(m * theta) if m > 0 else np.sin(abs(m) * theta) if m < 0 else 1
+        basis[:, j] = radial * angular * np.sqrt((2 if m else 1) * (n + 1))
+    return basis
 
 
-class ZernikeFitter:
-    """Reuse one basis/projector; rebuild when physical geometry/support changes."""
+def fit_zernike_phase(
+    phase,
+    pixel_size,
+    mask,
+    aperture_radius_m,
+    *,
+    terms=ZERNIKE_NUM_TERMS,
+    center_m=(0.0, 0.0),
+    tukey_alpha=ZERNIKE_TUKEY_ALPHA,
+):
+    """Return the residual directly, without a full fitted-phase image."""
+    if isinstance(terms, bool) or int(terms) != terms or not 1 <= terms <= 136:
+        raise ValueError("zernike_num_terms must be an integer in [1,136]")
+    terms = int(terms)
+    if mask.sum() <= terms or not 0 <= tukey_alpha <= 1:
+        raise ValueError("insufficient Zernike samples or invalid radial Tukey weight")
+    x, y = coordinate_grid(phase.shape, pixel_size)
+    rho = np.hypot(x - center_m[0], y - center_m[1]) / aperture_radius_m
+    theta = np.arctan2(y - center_m[1], x - center_m[0])
+    del x, y
+    indices = np.flatnonzero(mask)
+    gram, rhs = np.zeros((terms, terms)), np.zeros(terms)
 
-    def __init__(self):
-        self._geometry_key = None
-        self._valid = None
+    def blocks():
+        for start in range(0, len(indices), 16384):
+            idx = indices[start : start + 16384]
+            yield idx, zernike_basis(rho.ravel()[idx], theta.ravel()[idx], terms)
 
-    def fit(self, phase, pixel_size, wavelength, geometry):
-        sampling = normalize_pixel_size(pixel_size)
-        center, radius = tuple(geometry["center_m"]), float(geometry["radius_m"])
-        key = (phase.shape, sampling, center, radius)
-        if key != self._geometry_key:
-            mask, _ = circular_domain(
-                phase.shape, sampling, center_m=center, radius_m=radius
+    for idx, basis in blocks():
+        radial = rho.ravel()[idx]
+        weights = np.ones(len(idx))
+        if tukey_alpha:
+            rim = radial > 1 - tukey_alpha
+            weights[rim] = 0.5 * (
+                1 + np.cos(np.pi * (radial[rim] - 1 + tukey_alpha) / tukey_alpha)
             )
-            rows, columns = phase.shape
-            y = (np.arange(rows) - rows / 2) * sampling[0] - center[1]
-            x = (np.arange(columns) - columns / 2) * sampling[1] - center[0]
-            rho = np.hypot(y[:, None], x[None, :]) / radius
-            theta = np.arctan2(y[:, None], x[None, :])
-            self._basis = np.stack(
-                [
-                    np.where(mask, zernike_polynomial(j, rho, theta), 0.0)
-                    for j in range(ZERNIKE_NUM_TERMS)
-                ],
-                axis=-1,
-            )
-            weights = np.ones(phase.shape)
-            alpha = ZERNIKE_TUKEY_ALPHA
-            edge = (rho >= 1 - alpha) & (rho <= 1)
-            weights[edge] = 0.5 * (
-                1 + np.cos(np.pi * (rho[edge] - (1 - alpha)) / alpha)
-            )
-            self._sqrt_weights = np.sqrt(np.where(mask, weights, 0.0))
-            self._mask, self._geometry_key, self._valid = mask, key, None
-        valid = self._mask & np.isfinite(phase)
-        if valid.sum() < ZERNIKE_NUM_TERMS:
-            raise ValueError(
-                "not enough measured pixels for the default 36 Zernike terms"
-            )
-        if self._valid is None or not np.array_equal(valid, self._valid):
-            self._matrix = self._basis[valid]
-            weighted = self._matrix * self._sqrt_weights[valid, None]
-            u, singular, vh = svd(weighted, full_matrices=False, check_finite=False)
-            cutoff = np.finfo(float).eps * max(weighted.shape) * singular[0]
-            inverse = np.divide(
-                1.0, singular, out=np.zeros_like(singular), where=singular > cutoff
-            )
-            self._projector = (vh.T * inverse) @ u.T
-            self._valid = valid.copy()
-        coefficients = np.einsum(
-            "ij,j->i", self._projector, phase[valid] * self._sqrt_weights[valid]
-        )
-        fitted = np.full(phase.shape, np.nan)
-        fitted[valid] = np.einsum("ij,j->i", self._matrix, coefficients)
-        residual = np.where(valid, phase - fitted, np.nan)
-        rms = float(np.sqrt(np.mean(residual[valid] ** 2)))
-        return {
-            "coefficients": coefficients,
-            "fitted_phase": fitted,
-            "residual": residual,
-            "rms_error": rms,
-            "rms_error_nm": rms * wavelength / (2 * np.pi) * 1e9,
-        }
+        gram += basis.T @ (weights[:, None] * basis)
+        rhs += basis.T @ (weights * phase.ravel()[idx])
+    eigenvalues = np.linalg.eigvalsh(gram)
+    if eigenvalues[0] <= eigenvalues[-1] * 1e-12:
+        raise ValueError("Zernike fit is rank deficient on measured support")
+    coefficients = np.linalg.solve(gram, rhs)
+    residual = np.full(phase.shape, np.nan)
+    for idx, basis in blocks():
+        residual.ravel()[idx] = phase.ravel()[idx] - basis @ coefficients
+    return residual

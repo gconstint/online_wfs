@@ -7,12 +7,6 @@ def calculate_harmonic_periods(img_shape, pixel_size, pattern_period):
     vert_harm = int((pixel_size[0] * img_shape[0]) / pattern_period)
     hor_harm = int((pixel_size[1] * img_shape[1]) / pattern_period)
 
-    # # # Ensure even numbers
-    # vert_harm += (vert_harm % 2) + 1
-    # hor_harm += (hor_harm % 2) + 1
-    # # print("vert_harm", vert_harm)
-    # # print("hor_harm", hor_harm)
-
     return [vert_harm, hor_harm]
 
 
@@ -27,7 +21,6 @@ def calculate_peak_index(har_v, har_h, n_rows, n_columns, period_vert, period_ho
     3. period_vert and period_hor is the period of the basic frequency in the harmonic.
     """
     results = [n_rows // 2 + har_v * period_vert, n_columns // 2 + har_h * period_hor]
-    # print("the theoretical peak index is:", results)
     return results
 
 
@@ -46,8 +39,6 @@ def find_peak_in_region(img_fft, theoretical_idx, search_region):
     mask = np.zeros((n_rows, n_columns))
 
     i, j = theoretical_idx
-    # print("i,j", i, j)
-    # print("search_region", search_region)
     mask[
         i - search_region[0] : i + search_region[0],
         j - search_region[1] : j + search_region[1],
@@ -58,15 +49,14 @@ def find_peak_in_region(img_fft, theoretical_idx, search_region):
     return list(max_idx)
 
 
-def calculate_contrast(
+def analyze_contrast(
     img: np.ndarray,
     pixel_size: list[float],
     grating_period: float,
     source_dist: float,
     det2sample: float,
     search_region: int | list[int] | None = None,
-    plot_flag: bool = False,
-) -> float:
+) -> dict:
     """
     Locate the 00 and 01 harmonic peaks and compute the grating fringe contrast.
 
@@ -78,14 +68,12 @@ def calculate_contrast(
         det2sample (float): Detector-to-sample distance in meters (m).
         search_region (int or list[int], optional): Peak-search region size,
             either an integer or ``[vertical_range, horizontal_range]``.
-        plot_flag (bool): Whether to display the visualization.
-
     Returns:
-        float: Visibility/contrast value of the grating fringes.
+        dict: Contrast values, FFT, peak positions and measured harmonic periods.
+            These numerical results can be passed to tools.plot_contrast.
     """
     # TODO: normalize the input parameter conventions
     pattern_period = grating_period * (det2sample + source_dist) / source_dist
-    # pixel_size = [pixel_size, pixel_size]
     init_periods = calculate_harmonic_periods(img.shape, pixel_size, pattern_period)
 
     # 1. Compute the image FFT
@@ -125,9 +113,6 @@ def calculate_contrast(
     exp_period_v = abs(peak_10[0] - peak_00[0])
     # TODO: Decide whether to use peak-to-peak distances or the theoretical
     # harmonic period after localizing the harmonic peaks.
-    # exp_period_v = init_periods[1]
-    # exp_period_h = init_periods[0]
-
     # Compute self-imaging contrast using the harmonic peak values
     contrast01 = (
         2
@@ -140,60 +125,26 @@ def calculate_contrast(
         / np.abs(img_fft[peak_00[0], peak_00[1]])
     )
     contrast = (contrast01 + contrast10) / 2
-    print("contrast01:", contrast01)
-    print("contrast10:", contrast10)
-    print("contrast:", contrast)
+    return {
+        "contrast": float(contrast),
+        "contrast_horizontal": float(contrast01),
+        "contrast_vertical": float(contrast10),
+        "spectrum": img_fft,
+        "peaks": peak_positions,
+        "horizontal_period_pixels": int(exp_period_h),
+        "vertical_period_pixels": int(exp_period_v),
+    }
 
-    # 5. Visualize the result
-    if plot_flag:
-        import matplotlib.pyplot as plt
 
-        plt.figure(figsize=(10, 8))
-        plt.imshow(np.log10(np.abs(img_fft)), cmap="inferno")
-
-        # Mark the 00 peak
-        plt.scatter(
-            peak_00[1], peak_00[0], color="white", marker="+", s=150, label="00 Peak"
-        )
-
-        # Mark the 01 peak
-        plt.scatter(
-            peak_01[1], peak_01[0], color="cyan", marker="+", s=150, label="01 Peak"
-        )
-
-        # Mark the 10 peak
-        plt.scatter(
-            peak_10[1], peak_10[0], color="yellow", marker="+", s=150, label="10 Peak"
-        )
-
-        # Connecting lines
-        plt.plot(
-            [peak_00[1], peak_01[1]],
-            [peak_00[0], peak_01[0]],
-            "c--",
-            alpha=0.7,
-            label=f"Horizontal Period: {exp_period_h:.2f}",
-        )
-
-        plt.plot(
-            [peak_00[1], peak_10[1]],
-            [peak_00[0], peak_10[0]],
-            "y--",
-            alpha=0.7,
-            label=f"Vertical Period: {exp_period_v:.2f}",
-        )
-
-        plt.title("Harmonic Peaks and Accurate Periods")
-        plt.colorbar(label="Log10 Magnitude")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.show()
-
-        # Print summary information
-        print(f"00 Peak position: {peak_00}")
-        print(f"01 Peak position: {peak_01}")
-        print(f"10 Peak position: {peak_10}")
-        print(f"Accurate horizontal period: {exp_period_h:.2f} pixels")
-        print(f"Accurate vertical period: {exp_period_v:.2f} pixels")
-
-    return contrast
+def calculate_contrast(
+    img: np.ndarray,
+    pixel_size: list[float],
+    grating_period: float,
+    source_dist: float,
+    det2sample: float,
+    search_region: int | list[int] | None = None,
+) -> float:
+    """Return mean fringe contrast without plotting or printing."""
+    return analyze_contrast(
+        img, pixel_size, grating_period, source_dist, det2sample, search_region
+    )["contrast"]

@@ -3,7 +3,7 @@
 import numpy as np
 
 from online_wfs import Pipeline
-from online_wfs.data import load_sample
+from tools.io import load_sample
 
 
 def main():

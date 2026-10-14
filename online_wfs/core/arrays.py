@@ -35,6 +35,14 @@ def centered_fft(image: np.ndarray) -> np.ndarray:
     return np.fft.fftshift(fft2(np.asarray(image, dtype=dtype), norm="ortho"))
 
 
+def coordinate_grid(shape, pixel_size):
+    """Return pixel-centered (x,y) grids at the supplied physical sampling."""
+    py, px = normalize_pixel_size(pixel_size)
+    y = (np.arange(shape[0]) - (shape[0] - 1) / 2) * py
+    x = (np.arange(shape[1]) - (shape[1] - 1) / 2) * px
+    return np.meshgrid(x, y)
+
+
 def _validate_shape(shape):
     if len(shape) != 2 or any(
         isinstance(n, (bool, np.bool_))
@@ -51,7 +59,7 @@ def circular_domain(
     """Return a physical circle and its geometry on the grating grid.
 
     Center is (x, y), sampling is (py, px), both in meters. Coordinates follow
-    the reconstruction convention (index - size/2) * sampling. Fraction scales
+    the reconstruction convention (index - (size-1)/2) * sampling. Fraction scales
     the largest circle about the requested center that fits the physical FOV.
     An explicit radius takes precedence; circles are never clipped to the FOV.
     """
@@ -67,7 +75,7 @@ def circular_domain(
         raise ValueError("circle_radius_fraction must lie in (0, 1]")
     ny, nx = shape
     cx, cy = center
-    maximum = min(nx * px / 2 - abs(cx), ny * py / 2 - abs(cy))
+    maximum = min((nx - 1) * px / 2 - abs(cx), (ny - 1) * py / 2 - abs(cy))
     if maximum <= 0:
         raise ValueError("circle_center_m must be inside the reconstructed FOV")
     if isinstance(radius_m, (bool, np.bool_)):
@@ -79,8 +87,8 @@ def circular_domain(
         raise ValueError(
             "circle must fit inside the reconstructed FOV; reduce its radius"
         )
-    x = (np.arange(nx) - nx / 2) * px - cx
-    y = (np.arange(ny) - ny / 2) * py - cy
+    x = (np.arange(nx) - (nx - 1) / 2) * px - cx
+    y = (np.arange(ny) - (ny - 1) / 2) * py - cy
     mask = y[:, None] ** 2 + x[None, :] ** 2 <= radius**2
     if not np.any(mask):
         raise ValueError("circle contains no reconstructed pixels")

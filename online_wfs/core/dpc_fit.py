@@ -89,24 +89,8 @@ def _fit_linear_profiles(data, coords, valid_mask):
     return slopes, offsets
 
 
-def _curvature_radius(
-    slope: float,
-    wavelength: float,
-):
-    """Signed curvature radius: 1/R = wavelength * slope / (2*pi)."""
-    a = slope / 2.0  # Quadratic coefficient [rad/m²]
-    curvature = wavelength * a / np.pi  # Curvature of the supplied DPC [1/m]
-
-    if abs(curvature) > 1e-14:
-        R_real = 1.0 / curvature
-    else:
-        R_real = np.inf
-
-    return R_real
-
-
-def fit_dpc_background(dpc_x, dpc_y, pixel_size, wavelength, *, valid_mask):
-    """Fit X rows and Y columns within the concentric circle; preserve raw DPC.
+def fit_dpc_background(dpc_x, dpc_y, pixel_size, *, valid_mask):
+    """Return four affine coefficients without allocating background maps.
 
     Slopes/intercepts are aggregated by median. The coordinate origin follows
     the upstream DPC fit convention (index - (size-1)/2) * sampling.
@@ -117,8 +101,6 @@ def fit_dpc_background(dpc_x, dpc_y, pixel_size, wavelength, *, valid_mask):
     mask = np.asarray(valid_mask, dtype=bool)
     if mask.shape != dpc_x.shape:
         raise ValueError("valid_mask must match DPC shape")
-    if not np.isfinite(wavelength) or wavelength <= 0:
-        raise ValueError("wavelength must be finite and positive")
     rows, columns = dpc_x.shape
     py, px = normalize_pixel_size(pixel_size)
     y = (np.arange(rows) - (rows - 1) / 2) * py
@@ -129,18 +111,9 @@ def fit_dpc_background(dpc_x, dpc_y, pixel_size, wavelength, *, valid_mask):
         raise ValueError("DPC background fitting requires more valid measurements")
     slope_x, offset_x = np.median(slopes_x), np.median(offsets_x)
     slope_y, offset_y = np.median(slopes_y), np.median(offsets_y)
-    fit_x = np.broadcast_to(slope_x * x + offset_x, dpc_x.shape).copy()
-    fit_y = np.broadcast_to((slope_y * y + offset_y)[:, None], dpc_y.shape).copy()
     return {
-        "fit_params": {
-            "slope_x": float(slope_x),
-            "slope_y": float(slope_y),
-            "a_x": float(slope_x / 2),
-            "a_y": float(slope_y / 2),
-            "R_x": float(_curvature_radius(slope_x, wavelength)),
-            "R_y": float(_curvature_radius(slope_y, wavelength)),
-            "x0": float(-offset_x / slope_x) if abs(slope_x) > 1e-14 else 0.0,
-            "y0": float(-offset_y / slope_y) if abs(slope_y) > 1e-14 else 0.0,
-        },
-        "dpc_fit": {"dpc_x_fit": fit_x, "dpc_y_fit": fit_y},
+        "slope_x": float(slope_x),
+        "slope_y": float(slope_y),
+        "intercept_x": float(offset_x),
+        "intercept_y": float(offset_y),
     }

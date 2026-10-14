@@ -35,7 +35,7 @@ def _fit_profile(profile, coordinates):
             ),
             maxfev=10000,
         )
-        return float(fitted[1]), float(2 * np.sqrt(2 * np.log(2)) * abs(fitted[2]))
+        return float(2 * np.sqrt(2 * np.log(2)) * abs(fitted[2]))
     except (RuntimeError, ValueError):
         indices = np.flatnonzero(normalized >= np.max(normalized) * 0.5)
         fwhm = (
@@ -43,16 +43,15 @@ def _fit_profile(profile, coordinates):
             if len(indices) > 1
             else span * 0.1
         )
-        return 0.0, float(fwhm)
+        return float(fwhm)
 
 
-def calc_beam_size(intensity, pixel_size):
-    """Return detector-plane position (x,y) and Gaussian FWHM in meters."""
+def fit_profile_fwhm(intensity, pixel_size):
+    """Return only the detector-plane Gaussian FWHM (x,y) in meters."""
     rows, columns = intensity.shape
     py, px = pixel_size
     # Fit in micrometers to retain upstream numerical conditioning.
     x = (np.arange(columns) - columns / 2) * px * 1e6
     y = (np.arange(rows) - rows / 2) * py * 1e6
-    x0, fwhm_x = _fit_profile(np.mean(intensity, axis=0), x)
-    y0, fwhm_y = _fit_profile(np.mean(intensity, axis=1), y)
-    return (x0 * 1e-6, y0 * 1e-6), {"fwhm_x": fwhm_x * 1e-6, "fwhm_y": fwhm_y * 1e-6}
+    profiles = np.mean(intensity, axis=0), np.mean(intensity, axis=1)
+    return _fit_profile(profiles[0], x) * 1e-6, _fit_profile(profiles[1], y) * 1e-6

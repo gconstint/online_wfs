@@ -11,7 +11,7 @@ def focus_distance_from_dpc(
     wavelength: float,
     source_distance: float,
     propagation_distance: float,
-) -> dict[str, float]:
+) -> tuple[float, float]:
     """Estimate signed grating-to-focus distances using the Gaussian-q model.
 
     The inferred focus is the Gaussian waist. For a non-Gaussian beam, this is
@@ -27,7 +27,7 @@ def focus_distance_from_dpc(
     coordinates. Combine this full curvature with detector-plane intensity
     FWHM, then back-propagate q by L: q_grating = q_detector - L. No fitted
     residual radius is inverted, so zero residual slopes remain well-defined.
-    Returned distance_x/y are Re(q_grating) in meters: positive for a waist
+    Returned X/Y distances are Re(q_grating) in meters: positive for a waist
     upstream of the grating, negative for a waist downstream. Pipeline exports
     their absolute values as the grating-to-focus distance magnitudes.
     """
@@ -42,15 +42,12 @@ def focus_distance_from_dpc(
         2 * np.pi * magnification**2
     )
     radii = np.divide(1.0, curvature, out=np.full(2, np.inf), where=curvature != 0)
-    waist = gaussian_waist_from_curvature(
+    distances = gaussian_waist_from_curvature(
         *radii, detector_fwhm_x, detector_fwhm_y, wavelength
     )
     # Back-propagate q from the detector to the grating by propagation_distance.
     # Re(q) is positive for an upstream waist and negative for a downstream waist.
-    for axis in ("x", "y"):
-        waist[f"distance_{axis}"] -= propagation_distance
-    waist["distance_mean"] = (waist["distance_x"] + waist["distance_y"]) / 2
-    return waist
+    return tuple(distance - propagation_distance for distance in distances)
 
 
 def gaussian_waist_from_curvature(
@@ -59,7 +56,7 @@ def gaussian_waist_from_curvature(
     beam_fwhm_x: float,
     beam_fwhm_y: float,
     wavelength: float,
-) -> dict[str, float]:
+) -> tuple[float, float]:
     """Infer Gaussian waist positions relative to the supplied measurement plane.
 
     The supplied FWHM values and curvature radii must refer to the same plane.
@@ -81,29 +78,15 @@ def gaussian_waist_from_curvature(
     if beam_fwhm_x <= 0 or beam_fwhm_y <= 0 or wavelength <= 0:
         raise ValueError("beam FWHM and wavelength must be positive")
 
-    def per_axis(radius: float, fwhm: float) -> tuple[float, float, float, float]:
+    def per_axis(radius: float, fwhm: float) -> float:
         if abs(radius) <= 1e-14:
             raise ValueError("curvature radius must be non-zero")
         beam_radius = fwhm / np.sqrt(2.0 * np.log(2.0))
         inverse_radius = 0.0 if np.isinf(radius) else 1.0 / radius
         inverse_q = inverse_radius - 1j * wavelength / (np.pi * beam_radius**2)
         q_parameter = 1.0 / inverse_q
-        waist_distance = float(np.real(q_parameter))
-        rayleigh_range = float(abs(np.imag(q_parameter)))
-        waist_radius = float(np.sqrt(wavelength * rayleigh_range / np.pi))
-        waist_fwhm = float(waist_radius * np.sqrt(2.0 * np.log(2.0)))
-        return waist_distance, rayleigh_range, waist_radius, waist_fwhm
+        return float(np.real(q_parameter))
 
     x = per_axis(float(curvature_radius_x), float(beam_fwhm_x))
     y = per_axis(float(curvature_radius_y), float(beam_fwhm_y))
-    return {
-        "distance_x": x[0],
-        "distance_y": y[0],
-        "distance_mean": float(np.mean([x[0], y[0]])),
-        "rayleigh_range_x": x[1],
-        "rayleigh_range_y": y[1],
-        "waist_radius_x": x[2],
-        "waist_radius_y": y[2],
-        "waist_fwhm_x": x[3],
-        "waist_fwhm_y": y[3],
-    }
+    return x, y
