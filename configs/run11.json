@@ -1,0 +1,10 @@
+{
+  "p_energy": 10000,
+  "pixel_size": [4.8e-7, 4.8e-7],
+  "g_period": 18.38e-6,
+  "g_angle": 45,
+  "source_dist": 154.2,
+  "det2sample": 0.681,
+  "image_path": "/Users/guanzhh/Vscode_space/wfs_sgi/data/run11/img_010.tif",
+  "crop_indexes": [1455, 4692, 2268, 2965]
+}

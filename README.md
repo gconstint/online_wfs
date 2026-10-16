@@ -235,13 +235,14 @@ image, params = load_sample()
 
 ## Examples
 
-The four examples run from the repository root:
+The examples run from the repository root:
 
 ```bash
 python -m examples.example_pipeline
 python -m examples.example_slit_size
 python -m examples.example_contrast
 python -m examples.example_talbot_distance
+python -m examples.example_pixel_calibration
 ```
 
 The pipeline and contrast examples load the packaged measured frame and its
@@ -250,6 +251,51 @@ slit example defines its inputs directly. All examples print their results.
 Contrast plotting is separate: pass the dictionary returned by
 `online_wfs.physics.contrast.analyze_contrast(...)` to
 `tools.plot_contrast.plot_contrast(analysis, "output/contrast.png")`.
+
+### Detector pixel calibration before reconstruction (M2)
+
+```python
+from online_wfs.calibration import calibrate_pixel_size
+
+calibration = calibrate_pixel_size(slit_image, slit_params)
+print(calibration.pixel_size_x_m, calibration.pixel_size_y_m)
+reconstruction_params["pixel_size"] = calibration.pixel_size_yx  # meters, Y X
+```
+
+The array API in `online_wfs/calibration/pixel_calibration.py` performs only calibration.
+It returns separate X/Y pixels, theoretical/refined 00/01/10 peaks and scale
+factors. `format_report()` shows only the axis comparison table and the pixel
+sizes before and after calibration; the example prints this compact report.
+The package uses single-peak axis projections: `q_y=abs(y10-y00)` and
+`q_x=abs(x01-x00)`, then `py=P_d*q_y/Ny` and `px=P_d*q_x/Nx`.
+These projections retain the carrier's rotation factor; no rotation
+deprojection is applied. The output column is labeled `Projection [bins]`, and
+the diagnostic plot marks the horizontal and vertical projection distances.
+Pass already cropped arrays; crop dark/flat identically. Optional `dark` and
+`flat` arrays use the same corrections as reconstruction. Set
+`include_arrays=True` to retain arrays for external plotting.
+
+The example defaults to the full `run11/img_010.tif` slit frame, initial
+`0.48 µm` pixels, 10 keV, `R=154.2 m`, `z=0.681 m`, and an `18.38 µm / 45°`
+grating. Both entry points print the compact report without writing JSON or plots
+by default. The root script accepts `--plot` to display a diagnostic figure:
+
+```bash
+python -m examples.example_pixel_calibration
+python -m examples.example_pixel_calibration --image /path/to/slit.tif --pixel-size-um 0.48 0.48 --energy-ev 10000 --grating-period 18.38e-6 --source-grating-dist 154.2 --grating-detector-dist 0.681
+python cal_pixel_size.py --crop-indexes Y0 Y1 X0 X1
+python cal_pixel_size.py --config configs/run11.json --plot
+```
+
+The standalone example processes the full image using only the package API and
+NumPy/TIFF loading. The root `cal_pixel_size.py`
+also accepts `--crop-indexes`, `--dark-image` and `--flat-image`.
+Dark/flat corrections require paths supplied through the CLI or a config.
+Transfer the separate calibrated Y/X pixel sizes into the measurement's
+reconstruction config. Set that config's `crop_indexes` independently; the saved
+run13 ROI is `[864, 4644, 2268, 2616]` in `[y0,y1,x0,x1]` order, with exclusive
+stops. It is not the default slit-calibration ROI. Source distance, projected
+grating period and spherical reference must be known for pixel calibration.
 
 ## Repository layout
 
@@ -261,13 +307,16 @@ online_wfs/            # Installable calculation package
   core/                # Carrier demodulation, 2-D unwrapping and weighted integration
   analysis/            # Internal beam, focus and Zernike calculations
   physics/             # Contrast, slit and Talbot calculators
+  calibration/         # Array-only slit-reference X/Y pixel calibration
   data/                # Static measured TIFF and matching JSON, packaged unchanged
 reconstructions/       # Local measured cases and outputs (Git-ignored)
   */data.npz           # One lossless frame/calibration bundle per case
   */params.json        # Saved input parameters per case
 main.py                # Save results and call the plot helper
+cal_pixel_size.py      # Pixel calibration with config/crop/dark/flat and optional plot
+configs/               # Saved run11 calibration and run13 reconstruction inputs
 tools/                 # Local loading, plotting, saving and execution (Git-ignored)
-examples/              # Pipeline, slit size, contrast and Talbot distance examples
+examples/              # Pipeline, pixel calibration and physical-analysis examples
 tests/                 # Local numerical checks (Git-ignored)
 docs/                  # Local method records and historical flowcharts (Git-ignored)
 output/                # Generated arrays, figures and JSON reports (Git-ignored)
