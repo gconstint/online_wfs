@@ -1,14 +1,3 @@
-include README.md
-include pyproject.toml
-recursive-include online_wfs *.py
-recursive-include online_wfs/data *.tif *.json
-exclude main.py cal_pixel_size.py
-prune tools
-prune reconstructions
-prune output
-prune benchmarks
-prune examples
-prune configs
-prune docs
-prune tests
-global-exclude __pycache__ *.py[cod] .DS_Store
+recursive-include examples *.py
+# Setuptools includes a root README automatically when it is present locally.
+exclude README.md

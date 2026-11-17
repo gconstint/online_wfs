@@ -1,22 +1,71 @@
-"""Calculate Talbot distances: python -m examples.example_talbot_distance."""
+"""Calculate grating-to-detector distances; run with --help for physical inputs."""
 
-from online_wfs.physics.talbot import calculate_wavelength
-from tools.io import load_sample_config
-from tools.print_talbot import print_talbot_distance
+import argparse
+from collections.abc import Sequence
+
+from online_wfs.physics.talbot import calculate_talbot_distances
 
 
-def main():
-    """Use the packaged physical configuration without loading the detector image."""
-    params = load_sample_config()
+def build_parser() -> argparse.ArgumentParser:
+    """Define physical inputs directly, without a configuration file."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Calculate grating-to-detector Talbot distances for a 2-D pi/2 "
+            "checkerboard grating, with the focus-to-detector distance fixed."
+        ),
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--source-detector-dist",
+        type=float,
+        default=154.2,
+        help="Fixed focus/source-to-detector distance L in meters.",
+    )
+    parser.add_argument(
+        "--energy-ev",
+        type=float,
+        default=9000.0,
+        help="Photon energy in eV.",
+    )
+    parser.add_argument(
+        "--grating-period",
+        type=float,
+        default=18.38e-6,
+        help="Nominal checkerboard X/Y period in meters; divided by sqrt(2) internally.",
+    )
+    parser.add_argument(
+        "--eta",
+        type=float,
+        choices=(1.0,),
+        default=1.0,
+        help="Phase parameter: 1 for the pi/2 checkerboard grating.",
+    )
+    parser.add_argument(
+        "--orders",
+        type=int,
+        nargs="+",
+        default=[1, 3, 5],
+        help="Positive odd fractional Talbot orders.",
+    )
+    return parser
 
-    energy_ev = params["p_energy"]
-    grating_period = params["grating_period"]
-    wavelength = calculate_wavelength(energy_ev)
-    eta = 1.0  # 1 for a pi/2 phase grating, 2 for a pi phase grating.
-    source_dist = params["source_dist"]
-    talbot_orders = range(1, 30, 2)  # Odd orders: 1, 3, 5, ..., 29
 
-    print_talbot_distance(grating_period, wavelength, eta, source_dist, talbot_orders)
+def main(argv: Sequence[str] | None = None) -> None:
+    """Pass parsed physical inputs to the calculator and display its report."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        result = calculate_talbot_distances(
+            energy_ev=args.energy_ev,
+            grating_period=args.grating_period,
+            source_detector_dist=args.source_detector_dist,
+            eta=args.eta,
+            talbot_orders=args.orders,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    print(result.format_report())
 
 
 if __name__ == "__main__":

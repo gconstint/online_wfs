@@ -150,9 +150,10 @@ def calibrate_pixel_size(
 
     image must be a real finite 2-D detector array. params accepts the same
     physical inputs as Pipeline: p_energy [eV], pixel_size [m, scalar or py/px],
-    g_period [m, nominal], g_angle [degrees, default 45], source_dist [m] and
-    det2sample [m]. Apply any detector crop before this call and crop dark/flat
-    arrays identically. No circle mask is applied to this FFT measurement.
+    grating_period [m, nominal], grating_angle [degrees, default 45],
+    source_dist [m] and det2sample [m]. Apply any detector crop before this call
+    and crop dark/flat arrays identically. No circle mask is applied to this
+    FFT measurement.
 
     Dark/flat corrections match preprocess_image. Peaks use a separable Hann
     window, bounded integer search and local continuous DFT refinement, with
@@ -180,8 +181,8 @@ def calibrate_pixel_size(
         for key in (
             "p_energy",
             "pixel_size",
-            "g_period",
-            "g_angle",
+            "grating_period",
+            "grating_angle",
             "source_dist",
             "det2sample",
         )
@@ -192,7 +193,7 @@ def calibrate_pixel_size(
         optics={
             "wavelength_m": normalized["wavelength"],
             "magnification": normalized["total_dist"] / normalized["source_dist"],
-            "projected_grating_period_m": normalized["grating_period"],
+            "projected_grating_period_m": normalized["g_period"],
             "detector_pattern_period_m": normalized["pattern_period"],
         },
         carrier_geometry=geometry,
@@ -459,6 +460,6 @@ def compare_carriers(measurement, params):
             "mean_carrier_rotation_deg": float(np.degrees(mean_angle)),
             "angle_between_carriers_deg": float(np.degrees(np.arccos(cosine))),
             "carrier_periods_01_10_m": (1 / lengths).tolist(),
-            "interpretation": "uses assumed (py, px); carrier orientation is distinct from nominal g_angle",
+            "interpretation": "uses assumed (py, px); carrier orientation is distinct from nominal grating_angle",
         },
     }

@@ -8,8 +8,7 @@ import numpy as np
 
 from online_wfs.calibration import PixelSizeCalibrationResult, calibrate_pixel_size
 
-
-DEFAULT_IMAGE = Path("/Users/guanzhh/Vscode_space/wfs_sgi/data/run11/img_010.tif")
+from ._image_io import load_image
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -17,7 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Calibrate X/Y detector pixels from a slit spherical-wave reference. "
-            "Defaults match run11/img_010.tif with 0.48 um initial pixels. "
+            "Default geometry matches the run 11 slit reference with 0.48 um initial pixels. "
             "The entire input image is processed."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -25,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--image",
         type=Path,
-        default=DEFAULT_IMAGE,
+        required=True,
         help="Slit-reference TIFF or NPZ ('image' array).",
     )
     parser.add_argument(
@@ -82,22 +81,13 @@ def main(argv: Sequence[str] | None = None) -> PixelSizeCalibrationResult:
     params = {
         "p_energy": args.energy_ev,
         "pixel_size": np.asarray(pixels_um) * 1e-6,
-        "g_period": args.grating_period,
-        "g_angle": args.grating_angle,
+        "grating_period": args.grating_period,
+        "grating_angle": args.grating_angle,
         "source_dist": args.source_grating_dist,
         "det2sample": args.grating_detector_dist,
     }
     try:
-        image_path = args.image.expanduser().resolve()
-        if image_path.suffix.lower() == ".npz":
-            with np.load(image_path, allow_pickle=False) as arrays:
-                if "image" not in arrays:
-                    raise ValueError("input bundle is missing the 'image' array")
-                image = arrays["image"]
-        else:
-            import tifffile
-
-            image = tifffile.imread(image_path)
+        image = load_image(args.image)
         result = calibrate_pixel_size(image, params)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

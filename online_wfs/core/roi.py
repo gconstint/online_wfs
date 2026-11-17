@@ -1,4 +1,4 @@
-"""Fixed physical aperture selection on the detector-resolved grating grid."""
+"""Fixed physical aperture selection on the small grating-plane harmonic grid."""
 
 from .arrays import circular_domain
 

@@ -1,4 +1,4 @@
-"""Masked skimage unwrapping and weighted Poisson phase integration."""
+"""Masked skimage unwrapping with weighted CG or direct FC phase integration."""
 
 from __future__ import annotations
 
@@ -8,12 +8,11 @@ import numpy as np
 from scipy.ndimage import label
 from skimage.restoration import unwrap_phase
 
-from .arrays import normalize_pixel_size
 from .integration import GradientIntegrator
 
 
 class SupportedPoisson(GradientIntegrator):
-    """Measured support for 2-D unwrapping and weighted phase integration."""
+    """Amplitude-derived support for 2-D unwrapping and selected integration."""
 
     def __init__(
         self,
@@ -22,6 +21,7 @@ class SupportedPoisson(GradientIntegrator):
         support_threshold=0.01,
         *,
         support_mask=None,
+        method="fc_cg",
     ):
         if not 0 < support_threshold < 1:
             raise ValueError("support_threshold must lie in (0, 1)")
@@ -61,7 +61,7 @@ class SupportedPoisson(GradientIntegrator):
                     "and carrier amplitudes"
                 )
             support = components == largest
-        super().__init__(support, reliability)
+        super().__init__(support, reliability, method=method)
 
     def unwrap(self, phase):
         """Unwrap in 2-D and anchor the integer 2*pi branch at a supported pixel."""
@@ -84,11 +84,5 @@ class SupportedPoisson(GradientIntegrator):
         return unwrapped
 
     def integrate(self, gx, gy, sampling_yx):
-        gx, gy = np.asarray(gx, dtype=float), np.asarray(gy, dtype=float)
-        if gx.shape != self.support.shape or gy.shape != self.support.shape:
-            raise ValueError("gradients must match the reconstruction grid")
-        py, px = normalize_pixel_size(sampling_yx)
-        # Trapezoidal quadrature converts collocated gradients to edge differences.
-        return self.solve(
-            0.5 * (gx[:, :-1] + gx[:, 1:]) * px, 0.5 * (gy[:-1] + gy[1:]) * py
-        )
+        """Integrate with the selected weighted CG or direct FC method."""
+        return super().integrate(gx, gy, sampling_yx)

@@ -5,8 +5,8 @@ import numpy as np
 from .core.arrays import validate_image
 
 
-def preprocess_image(image, *, dark=None, flat=None, rotation_angle=0.0):
-    """Apply dark/flat correction in float64 and a supplied fixed rotation."""
+def preprocess_image(image, *, dark=None, flat=None):
+    """Apply dark/flat correction in float64 without changing image geometry."""
     image = validate_image(image, "detector image")
     dark = None if dark is None else validate_image(dark, "dark image")
     flat = None if flat is None else validate_image(flat, "flat image")
@@ -19,19 +19,4 @@ def preprocess_image(image, *, dark=None, flat=None, rotation_angle=0.0):
         if np.any(np.abs(denominator) <= 1e-8):
             raise ValueError("flat correction contains unsupported pixels")
         corrected /= denominator
-    corrected = validate_image(corrected, "corrected detector image")
-    if abs(rotation_angle) > 1e-6:
-        import cv2
-
-        rows, columns = corrected.shape
-        matrix = cv2.getRotationMatrix2D(
-            ((columns - 1) / 2, (rows - 1) / 2), rotation_angle, 1.0
-        )
-        corrected = cv2.warpAffine(
-            corrected,
-            matrix,
-            (columns, rows),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REFLECT_101,
-        )
-    return corrected
+    return validate_image(corrected, "corrected detector image")

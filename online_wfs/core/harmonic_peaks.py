@@ -4,25 +4,21 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-HARMONIC_NAMES = ("00", "01", "10")
-HARMONIC_PEAK_MODES = ("theoretical", "integer", "subpixel")
-DEFAULT_HARMONIC_PEAK_MODE = "theoretical"
+
+# Used by reconstruction, contrast and pixel calibration.
 
 
-def validate_harmonic_peak_mode(mode):
-    """Validate an explicit crop mode without changing the physical carrier."""
-    if mode not in HARMONIC_PEAK_MODES:
-        raise ValueError(
-            "harmonic_peak_mode must be 'theoretical', 'integer' or 'subpixel'"
-        )
-    return mode
+def calculate_harmonic_periods(
+    img_shape: Tuple[int, int], pixel_size: Tuple[float, float], pattern_period: float
+) -> List[float]:
+    """Return [vertical, horizontal] FFT carrier spacings in bins.
 
-
-def _validate_harmonic_periods(periods):
-    values = np.asarray(periods, dtype=float)
-    if values.shape != (2,) or not np.all(np.isfinite(values) & (values >= 2)):
-        raise ValueError("harmonic periods must contain two finite values >= 2 pixels")
-    return values
+    Detector sampling ``pixel_size`` and real-space ``pattern_period`` use
+    meters. The historical function name is retained for compatibility.
+    """
+    vert_harm = (pixel_size[0] * img_shape[0]) / pattern_period
+    hor_harm = (pixel_size[1] * img_shape[1]) / pattern_period
+    return [vert_harm, hor_harm]
 
 
 def calculate_peak_index(
@@ -41,10 +37,20 @@ def calculate_peak_index(
     return [n_rows // 2 + har_v * period_vert, n_columns // 2 + har_h * period_hor]
 
 
-def _nearest_fft_bin(shape, peak):
-    """Round offsets from DC, so half-bin ties do not depend on ROI parity."""
-    dc = np.asarray(shape, dtype=int) // 2
-    return (dc + np.rint(np.asarray(peak, dtype=float) - dc).astype(int)).tolist()
+def harmonic_window_bounds(shape, peak, harmonic_period):
+    """Return [y0, y1, x0, x1] for a complete, even-sized FFT window."""
+    periods = _validate_harmonic_periods(harmonic_period)
+    center = _nearest_fft_bin(shape, peak)
+    half = np.floor(periods / 2).astype(int)
+    bounds = [
+        center[0] - half[0],
+        center[0] + half[0],
+        center[1] - half[1],
+        center[1] + half[1],
+    ]
+    if bounds[0] < 0 or bounds[1] > shape[0] or bounds[2] < 0 or bounds[3] > shape[1]:
+        raise ValueError("harmonic extraction window extends outside the FFT spectrum")
+    return list(map(int, bounds))
 
 
 def refine_harmonic_peak(img_fft, peak):
@@ -82,20 +88,33 @@ def refine_harmonic_peak(img_fft, peak):
     return [row + dy, col + dx]
 
 
-def harmonic_window_bounds(shape, peak, harmonic_period):
-    """Return [y0, y1, x0, x1] for a complete, even-sized FFT window."""
-    periods = _validate_harmonic_periods(harmonic_period)
-    center = _nearest_fft_bin(shape, peak)
-    half = np.floor(periods / 2).astype(int)
-    bounds = [
-        center[0] - half[0],
-        center[0] + half[0],
-        center[1] - half[1],
-        center[1] + half[1],
-    ]
-    if bounds[0] < 0 or bounds[1] > shape[0] or bounds[2] < 0 or bounds[3] > shape[1]:
-        raise ValueError("harmonic extraction window extends outside the FFT spectrum")
-    return list(map(int, bounds))
+def _validate_harmonic_periods(periods):
+    values = np.asarray(periods, dtype=float)
+    if values.shape != (2,) or not np.all(np.isfinite(values) & (values >= 2)):
+        raise ValueError("harmonic periods must contain two finite values >= 2 pixels")
+    return values
+
+
+def _nearest_fft_bin(shape, peak):
+    """Round offsets from DC, so half-bin ties do not depend on ROI parity."""
+    dc = np.asarray(shape, dtype=int) // 2
+    return (dc + np.rint(np.asarray(peak, dtype=float) - dc).astype(int)).tolist()
+
+
+# Currently unused by project workflows; retained for reference.
+###########
+HARMONIC_NAMES = ("00", "01", "10")
+HARMONIC_PEAK_MODES = ("theoretical", "integer", "subpixel")
+DEFAULT_HARMONIC_PEAK_MODE = "theoretical"
+
+
+def validate_harmonic_peak_mode(mode):
+    """Validate an explicit crop mode without changing the physical carrier."""
+    if mode not in HARMONIC_PEAK_MODES:
+        raise ValueError(
+            "harmonic_peak_mode must be 'theoretical', 'integer' or 'subpixel'"
+        )
+    return mode
 
 
 def _peak_search_radius(periods):
@@ -190,19 +209,6 @@ def get_harmonic_geometry(
         ),
     }
     return geometry
-
-
-def calculate_harmonic_periods(
-    img_shape: Tuple[int, int], pixel_size: Tuple[float, float], pattern_period: float
-) -> List[float]:
-    """Return [vertical, horizontal] FFT carrier spacings in bins.
-
-    Detector sampling ``pixel_size`` and real-space ``pattern_period`` use
-    meters. The historical function name is retained for compatibility.
-    """
-    vert_harm = (pixel_size[0] * img_shape[0]) / pattern_period
-    hor_harm = (pixel_size[1] * img_shape[1]) / pattern_period
-    return [vert_harm, hor_harm]
 
 
 def accurate_harmonic_periods(

@@ -1,36 +1,65 @@
-"""Calculate a slit opening: python -m examples.example_slit_size."""
+"""Calculate a slit opening: python -m examples.example_slit_size --help."""
 
-from online_wfs.physics.slit import (
-    slit_size_from_detector_um,
-    calculate_wavelength,
-)
+import argparse
+from collections.abc import Sequence
+
+from online_wfs.physics.slit import calculate_slit_size
 
 
-def main():
-    p_energy = 10000  # Photon energy in eV.
-    distance_m = 154.2  # Slit-to-detector distance in m.
-    pixel_size_um = 0.48
-    resolution = 5048
-    target_fraction = 1.0
-
-    wavelength_nm = calculate_wavelength(p_energy) * 1e9
-    detector_fov_um = pixel_size_um * resolution
-    target_width_um = target_fraction * detector_fov_um
-    slit_um = slit_size_from_detector_um(
-        p_energy,
-        distance_m,
-        pixel_size_um,
-        resolution,
-        target_fraction,
+def build_parser() -> argparse.ArgumentParser:
+    """Define physical parameters without a JSON configuration file."""
+    parser = argparse.ArgumentParser(
+        description="Calculate a single-slit opening from detector geometry.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument(
+        "--energy-ev",
+        type=float,
+        default=9000.0,
+        help="Photon energy in eV.",
+    )
+    parser.add_argument(
+        "--distance-m",
+        type=float,
+        default=154.2,
+        help="Slit-to-detector propagation distance in meters.",
+    )
+    parser.add_argument(
+        "--pixel-size-um",
+        type=float,
+        default=0.48,
+        help="Effective detector pixel size in micrometers.",
+    )
+    parser.add_argument(
+        "--resolution",
+        type=int,
+        default=5048,
+        help="Pixel count along the detector axis being sized.",
+    )
+    parser.add_argument(
+        "--target-fraction",
+        type=float,
+        default=1.0,
+        help="Positive FOV multiplier setting the center-to-first-minimum distance.",
+    )
+    return parser
 
-    print(f"Energy                : {p_energy:.3f} eV")
-    print(f"Distance              : {distance_m:.3f} m")
-    print(f"Wavelength            : {wavelength_nm:.6f} nm")
-    print(f"Detector FOV          : {detector_fov_um:.2f} um")
-    print(f"Target fraction       : {target_fraction:.0%}")
-    print(f"Target width          : {target_width_um:.2f} um")
-    print(f"Slit size             : {slit_um:.2f} um")
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Pass physical inputs to the calculator and display its report."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        result = calculate_slit_size(
+            energy_ev=args.energy_ev,
+            distance_m=args.distance_m,
+            pixel_size_um=args.pixel_size_um,
+            resolution=args.resolution,
+            target_fraction=args.target_fraction,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    print(result.format_report())
 
 
 if __name__ == "__main__":

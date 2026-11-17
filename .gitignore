@@ -1,7 +1,13 @@
-# Python
+# Track the package, runnable examples, and build metadata.
+/*
+!/.gitignore
+!/MANIFEST.in
+!/pyproject.toml
+!/online_wfs/
+!/examples/
 
-*/__pycache__
-__pycache__
+# Python
+__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -32,7 +38,8 @@ ENV/
 # IDE
 .idea/
 .vscode/
-
+.pytest_cache/
+.ruff_cache/
 
 # Logs
 *.log
@@ -50,17 +57,9 @@ log/
 Icon
 ._*
 
-__pycache__
-core/__pycache__
-
-/output/
-/tools/
-/reconstructions/
-/tests/
-/docs/
-
+# Local documents, results, and worktrees
+docs/
+results/
+output*/
 .worktrees/
-
 *.prof
-
-.pytest_cache/

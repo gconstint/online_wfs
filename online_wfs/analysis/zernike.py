@@ -1,4 +1,4 @@
-"""Blockwise 36-term OSA/ANSI fitting on the measured circular support."""
+"""Bounded-memory OSA/ANSI fitting calculated independently for each phase map."""
 
 from math import factorial
 
@@ -43,7 +43,7 @@ def fit_zernike_phase(
     center_m=(0.0, 0.0),
     tukey_alpha=ZERNIKE_TUKEY_ALPHA,
 ):
-    """Return the residual directly, without a full fitted-phase image."""
+    """Fit the current phase on its measured support and return the residual."""
     if isinstance(terms, bool) or int(terms) != terms or not 1 <= terms <= 136:
         raise ValueError("zernike_num_terms must be an integer in [1,136]")
     terms = int(terms)

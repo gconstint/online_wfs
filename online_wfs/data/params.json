@@ -3,6 +3,6 @@
     "pixel_size": 7.15e-07,
     "det2sample": 0.35,
     "source_dist": 6.5,
-    "g_period": 1.838e-05,
-    "g_angle": 45
+    "grating_period": 1.838e-05,
+    "grating_angle": 45
 }

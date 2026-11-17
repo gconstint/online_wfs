@@ -1,4 +1,11 @@
-"""Minimal physical configuration; numerical controls are internal defaults."""
+"""Configuration for the array-only wavefront API.
+
+Required: p_energy [eV], pixel_size [m, scalar or (py, px)],
+grating_period [m, nominal], source_dist [m], det2sample [m].
+Optional: grating_angle=45.0 [degrees], integration_method="fc_cg",
+phase_cleanup="tilt_xy".
+Derived: wavelength, total_dist, g_period (effective), pattern_period.
+"""
 
 from collections.abc import Mapping
 
@@ -9,79 +16,51 @@ from .defaults import RECONSTRUCTION_DEFAULTS
 from .physics.wavelength import calculate_wavelength
 
 
-def normalize_config(params):
-    """Validate five physical inputs and derive optics without changing inputs."""
+def normalize_config(params: Mapping) -> dict:
+    """Validate inputs and return a new mapping with defaults and derived optics.
+
+    Already normalized mappings are accepted. Derived values and fixed internal
+    defaults are recomputed; the input mapping is never modified.
+    """
     if not isinstance(params, Mapping):
         raise ValueError("configuration must be a mapping")
-    if any(
-        params.get(key)
-        for key in (
-            "image_path",
-            "dark_image_path",
-            "flat_image_path",
-            "flat_valid_mask_path",
-        )
-    ):
-        raise ValueError(
-            "file paths are unsupported; supply physical parameters and image arrays"
-        )
-    if any(
-        key in params
-        for key in (
-            "reference",
-            "reference_image",
-            "reference_fft",
-            "reference_image_path",
-            "ref_image_path",
-        )
-    ):
-        raise ValueError(
-            "reference images are unsupported; this package uses absolute mode"
-        )
-    if params.get("mode", "absolute") != "absolute":
-        raise ValueError("only absolute mode is supported")
+
+    # Physical inputs: energy in eV, lengths in meters.
     result = {}
-    for key in ("p_energy", "g_period", "source_dist", "det2sample"):
-        if key not in params:
-            raise KeyError(f"missing configuration parameter: {key}")
-        value = params[key]
-        if (
-            isinstance(value, (bool, np.bool_))
-            or not np.isfinite(float(value))
-            or float(value) <= 0
-        ):
+    for key in ("p_energy", "grating_period", "source_dist", "det2sample"):
+        raw = params[key]
+        value = float(raw)
+        if isinstance(raw, (bool, np.bool_)) or not np.isfinite(value) or value <= 0:
             raise ValueError(f"{key} must be finite and positive")
-        result[key] = float(value)
-    if "pixel_size" not in params:
-        raise KeyError("missing configuration parameter: pixel_size")
+        result[key] = value
     result["pixel_size"] = normalize_pixel_size(params["pixel_size"])
-    angle = float(params.get("g_angle", 45.0))
-    rotation = float(params.get("rotation_angle", 0.0))
-    if not np.isfinite(angle) or not np.isfinite(rotation):
-        raise ValueError("g_angle and rotation_angle must be finite degrees")
-    result.update(g_angle=angle, rotation_angle=rotation)
-    result["wavelength"] = calculate_wavelength(result["p_energy"])
-    result["total_dist"] = result["source_dist"] + result["det2sample"]
-    result["grating_period"] = result["g_period"] * (
-        np.sqrt(0.5) if np.isclose(angle, 45.0) else 0.5
-    )
-    result["pattern_period"] = result["grating_period"] * (
-        result["total_dist"] / result["source_dist"]
-    )
+    angle = float(params.get("grating_angle", 45.0))
+    if not np.isfinite(angle):
+        raise ValueError("grating_angle must be finite degrees")
+    result["grating_angle"] = angle
+
+    # Public reconstruction choices; other numerical settings stay internal.
     result.update(RECONSTRUCTION_DEFAULTS)
-    offsets = np.asarray(params.get("carrier_phase_offset_rad", (0.0, 0.0)), float)
-    if offsets.shape != (2,) or not np.all(np.isfinite(offsets)):
-        raise ValueError(
-            "carrier_phase_offset_rad must contain two finite [x,y] radians"
-        )
-    # Numerical phase origins may describe a crop of a larger detector frame.
-    result["carrier_phase_offset_rad"] = tuple(map(float, offsets))
     for key, choices in (
         ("phase_cleanup", ("none", "tilt_xy")),
-        ("beam_width_method", ("gaussian_profile", "gaussian_envelope")),
+        ("integration_method", ("fc_cg", "fc")),
     ):
         value = params.get(key, result[key])
         if value not in choices:
             raise ValueError(f"{key} must be one of {choices}")
         result[key] = value
+
+    # Derived optics are always calculated from the physical inputs above.
+    result["wavelength"] = calculate_wavelength(result["p_energy"])
+    result["total_dist"] = result["source_dist"] + result["det2sample"]
+    result["g_period"] = result["grating_period"] * (
+        np.sqrt(0.5) if np.isclose(angle, 45.0) else 0.5
+    )
+    result["pattern_period"] = result["g_period"] * (
+        result["total_dist"] / result["source_dist"]
+    )
+    unsupported = params.keys() - result.keys()
+    if unsupported:
+        names = ", ".join(sorted(map(str, unsupported)))
+        raise ValueError(f"unsupported configuration parameters: {names}")
     return result
